@@ -1,0 +1,21 @@
+id: jn-002
+title: Products that never sold, with their category
+topic: joins
+tags: [anti-join, multi-join]
+difficulty: medium
+dataset: ecommerce
+prompt: |
+  Return the **product name** and its **category name** for every product that appears in no order line.
+  Name the columns `product` and `category`.
+solution_sql: |
+  SELECT p.name AS product, c.name AS category
+  FROM products p JOIN categories c ON c.id = p.category_id
+  WHERE NOT EXISTS (SELECT 1 FROM order_items i WHERE i.product_id = p.id)
+compare: {order_matters: false}
+hints:
+  - "Which table says whether a product was ever sold?"
+  - "Column aliases must match the names in the question."
+trap: |
+  Joining order_items to products and filtering `quantity IS NULL` after an INNER JOIN finds nothing — the anti-join has to keep the unmatched products. Also: a product can appear in many order lines, so `JOIN … GROUP BY` just to test existence is wasteful.
+followup: |
+  "Marketing wants the same list but only for products created more than 90 days ago — where does that filter go?" (WHERE on products, not in the NOT EXISTS.)

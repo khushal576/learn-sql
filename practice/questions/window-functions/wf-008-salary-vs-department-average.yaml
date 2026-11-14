@@ -1,0 +1,30 @@
+id: wf-008
+title: Salary versus the department average
+topic: window-functions
+tags: [avg-over, partition-by]
+difficulty: medium
+dataset: hr
+prompt: |
+  Compensation wants to see, for every employee of departments **1 and 2**, how far the salary is from the average of **their own department**.
+  Keep one row per employee. Return `id`, `dept_id`, `salary`, `dept_avg` (average salary of the department, rounded to 2 decimals)
+  and `diff` (`salary - dept_avg`, rounded to 2 decimals), ordered by `dept_id`, then `id`.
+solution_sql: |
+  SELECT id, dept_id, salary,
+         round(avg(salary) OVER (PARTITION BY dept_id), 2) AS dept_avg,
+         round(salary - avg(salary) OVER (PARTITION BY dept_id), 2) AS diff
+  FROM employees
+  WHERE dept_id IN (1, 2)
+  ORDER BY dept_id, id
+compare: {order_matters: true}
+hints:
+  - "You need the average next to each row, not instead of the rows: a window function keeps them."
+  - "Which clause of OVER makes the average per department?"
+trap: |
+  Forgetting `PARTITION BY dept_id` (a bare `avg(salary) OVER ()`) averages the two departments together, because the WHERE already removed everyone else. Every `diff` is then wrong, and nothing errors out. The other tempting route, `GROUP BY dept_id`, collapses the rows and loses the employees.
+followup: |
+  "Only employees paid above their department average?" (Window functions are not allowed in WHERE: wrap in a subquery/CTE and filter diff > 0.)
+alternatives:
+  - |
+    SELECT e.id, e.dept_id, e.salary, round(d.a, 2) AS dept_avg, round(e.salary - d.a, 2) AS diff
+    FROM employees e JOIN (SELECT dept_id, avg(salary) AS a FROM employees GROUP BY dept_id) d ON d.dept_id = e.dept_id
+    WHERE e.dept_id IN (1, 2) ORDER BY e.dept_id, e.id

@@ -1,0 +1,127 @@
+wf-016:
+  wrong: |
+    WITH d AS (SELECT o.order_date AS day, sum(i.quantity*i.unit_price) AS revenue FROM orders o JOIN order_items i ON i.order_id=o.id WHERE o.status<>'cancelled' AND o.order_date BETWEEN '2023-01-01' AND '2023-01-31' GROUP BY o.order_date)
+    SELECT day, revenue, round(avg(revenue) OVER (ORDER BY day ROWS BETWEEN 6 PRECEDING AND CURRENT ROW),2) AS ma7 FROM d ORDER BY day
+  right: |
+    WITH d AS (SELECT o.order_date AS day, sum(i.quantity*i.unit_price) AS revenue FROM orders o JOIN order_items i ON i.order_id=o.id WHERE o.status<>'cancelled' AND o.order_date BETWEEN '2023-01-01' AND '2023-01-31' GROUP BY o.order_date)
+    SELECT a.day, a.revenue, (SELECT CASE WHEN count(*)=7 THEN round(avg(b.revenue),2) END FROM d b WHERE b.day BETWEEN a.day-6 AND a.day) AS ma7 FROM d a ORDER BY a.day
+
+wf-017:
+  wrong: |
+    WITH v AS (SELECT o.customer_id, o.id AS order_id, o.order_date, sum(i.quantity*i.unit_price) AS order_value FROM orders o JOIN order_items i ON i.order_id=o.id WHERE o.status<>'cancelled' AND o.customer_id<=3 GROUP BY o.customer_id,o.id,o.order_date)
+    SELECT customer_id, order_id, order_date, order_value, sum(order_value) OVER (PARTITION BY customer_id ORDER BY order_date, order_id) AS running_spend,
+    round(100*sum(order_value) OVER (PARTITION BY customer_id ORDER BY order_date, order_id)/sum(order_value) OVER (), 2) AS pct_of_lifetime FROM v ORDER BY customer_id, order_date, order_id
+  right: |
+    WITH v AS (SELECT o.customer_id, o.id AS order_id, o.order_date, sum(i.quantity*i.unit_price) AS order_value FROM orders o JOIN order_items i ON i.order_id=o.id WHERE o.status<>'cancelled' AND o.customer_id<=3 GROUP BY o.customer_id,o.id,o.order_date)
+    SELECT a.customer_id, a.order_id, a.order_date, a.order_value, (SELECT sum(b.order_value) FROM v b WHERE b.customer_id=a.customer_id AND (b.order_date,b.order_id)<=(a.order_date,a.order_id)) AS running_spend,
+    round(100*(SELECT sum(b.order_value) FROM v b WHERE b.customer_id=a.customer_id AND (b.order_date,b.order_id)<=(a.order_date,a.order_id))/(SELECT sum(b.order_value) FROM v b WHERE b.customer_id=a.customer_id),2) AS pct_of_lifetime
+    FROM v a ORDER BY 1,3,2
+
+wf-018:
+  wrong: |
+    SELECT emp_id, effective_date, salary, salary - lag(salary) OVER (ORDER BY emp_id, effective_date) AS change,
+    round(100.0*(salary - lag(salary) OVER (ORDER BY emp_id, effective_date))/lag(salary) OVER (ORDER BY emp_id, effective_date),1) AS pct_change
+    FROM salary_history WHERE emp_id<=15 ORDER BY emp_id, effective_date
+  right: |
+    SELECT h.emp_id, h.effective_date, h.salary, h.salary - p.salary AS change, round(100.0*(h.salary-p.salary)/p.salary,1) AS pct_change
+    FROM salary_history h LEFT JOIN LATERAL (SELECT salary FROM salary_history x WHERE x.emp_id=h.emp_id AND x.effective_date<h.effective_date ORDER BY x.effective_date DESC LIMIT 1) p ON true
+    WHERE h.emp_id<=15 ORDER BY h.emp_id, h.effective_date
+
+wf-019:
+  wrong: |
+    SELECT customer_id, id AS order_id, order_date, status, last_value(status) OVER (PARTITION BY customer_id ORDER BY order_date, id) AS latest_status FROM orders WHERE customer_id<=5 ORDER BY customer_id, order_date, id
+  right: |
+    SELECT customer_id, id AS order_id, order_date, status, first_value(status) OVER (PARTITION BY customer_id ORDER BY order_date DESC, id DESC) AS latest_status FROM orders WHERE customer_id<=5 ORDER BY customer_id, order_date, id
+
+wf-020:
+  wrong: |
+    WITH g AS (SELECT customer_id, status, order_date - lag(order_date) OVER (PARTITION BY customer_id ORDER BY order_date, id) AS gap FROM orders WHERE customer_id<=65)
+    SELECT customer_id, max(gap) AS max_gap_days FROM g WHERE status<>'cancelled' AND gap IS NOT NULL GROUP BY customer_id ORDER BY customer_id
+  right: |
+    SELECT o.customer_id, max(o.order_date - p.order_date) AS max_gap_days FROM orders o
+    JOIN LATERAL (SELECT order_date FROM orders x WHERE x.customer_id=o.customer_id AND x.status<>'cancelled' AND (x.order_date,x.id)<(o.order_date,o.id) ORDER BY x.order_date DESC, x.id DESC LIMIT 1) p ON true
+    WHERE o.status<>'cancelled' AND o.customer_id<=65 GROUP BY o.customer_id ORDER BY o.customer_id
+
+wf-021:
+  wrong: |
+    SELECT course_id, student_id, score, round(avg(score) OVER (), 2) AS course_avg, round(score - avg(score) OVER (), 2) AS vs_avg FROM scores WHERE exam='midterm' AND course_id IN (1,2) ORDER BY course_id, score DESC, student_id
+  right: |
+    SELECT s.course_id, s.student_id, s.score, round(m.a,2) AS course_avg, round(s.score - m.a,2) AS vs_avg FROM scores s JOIN (SELECT course_id, avg(score) AS a FROM scores WHERE exam='midterm' GROUP BY course_id) m ON m.course_id=s.course_id
+    WHERE s.exam='midterm' AND s.course_id IN (1,2) ORDER BY s.course_id, s.score DESC, s.student_id
+
+wf-022:
+  wrong: |
+    WITH v AS (SELECT o.customer_id, o.id AS order_id, sum(i.quantity*i.unit_price) AS order_value FROM orders o JOIN order_items i ON i.order_id=o.id WHERE o.status<>'cancelled' AND o.customer_id<=10 GROUP BY o.customer_id,o.id),
+    r AS (SELECT *, row_number() OVER (PARTITION BY customer_id ORDER BY order_value DESC, order_id) AS rn FROM v)
+    SELECT customer_id, order_id, order_value FROM r WHERE rn=1 ORDER BY customer_id, order_id
+  right: |
+    WITH v AS (SELECT o.customer_id, o.id AS order_id, sum(i.quantity*i.unit_price) AS order_value FROM orders o JOIN order_items i ON i.order_id=o.id WHERE o.status<>'cancelled' AND o.customer_id<=10 GROUP BY o.customer_id,o.id)
+    SELECT v.customer_id, v.order_id, v.order_value FROM v WHERE v.order_value = (SELECT max(order_value) FROM v w WHERE w.customer_id=v.customer_id) ORDER BY v.customer_id, v.order_id
+
+wf-023:
+  wrong: |
+    SELECT student_id, score, lag(score) OVER (ORDER BY score, student_id) AS next_score, lag(score) OVER (ORDER BY score, student_id) - score AS points_to_catch_up FROM scores WHERE course_id=3 AND exam='final' ORDER BY score, student_id
+  right: |
+    SELECT student_id, score, lag(score) OVER (ORDER BY score DESC, student_id DESC) AS next_score, lag(score) OVER (ORDER BY score DESC, student_id DESC) - score AS points_to_catch_up FROM scores WHERE course_id=3 AND exam='final' ORDER BY score, student_id
+
+wf-024:
+  wrong: |
+    WITH m AS (SELECT date_trunc('month', o.order_date)::date AS month, sum(i.quantity*i.unit_price) AS revenue FROM orders o JOIN order_items i ON i.order_id=o.id WHERE o.status<>'cancelled' GROUP BY 1)
+    SELECT month, revenue, sum(revenue) OVER (ORDER BY month) AS ytd FROM m ORDER BY month
+  right: |
+    WITH m AS (SELECT date_trunc('month', o.order_date)::date AS month, sum(i.quantity*i.unit_price) AS revenue FROM orders o JOIN order_items i ON i.order_id=o.id WHERE o.status<>'cancelled' GROUP BY 1)
+    SELECT a.month, a.revenue, (SELECT sum(b.revenue) FROM m b WHERE date_trunc('year', b.month) = date_trunc('year', a.month) AND b.month <= a.month) AS ytd FROM m a ORDER BY a.month
+
+wf-025:
+  wrong: |
+    WITH v AS (SELECT o.customer_id, o.id AS order_id, o.order_date, sum(i.quantity*i.unit_price) AS order_value FROM orders o JOIN order_items i ON i.order_id=o.id WHERE o.status <> 'cancelled' AND o.customer_id<=20 GROUP BY o.customer_id,o.id,o.order_date),
+    c AS (SELECT *, sum(order_value) OVER (PARTITION BY customer_id ORDER BY order_date, order_id) AS cumulative_spend FROM v)
+    SELECT DISTINCT ON (customer_id) customer_id, order_id, order_date, cumulative_spend FROM c WHERE cumulative_spend > 10000 ORDER BY customer_id, order_date, order_id
+  right: |
+    WITH v AS (SELECT o.customer_id, o.id AS order_id, o.order_date, sum(i.quantity*i.unit_price) AS order_value FROM orders o JOIN order_items i ON i.order_id=o.id WHERE o.status NOT IN ('cancelled','returned') AND o.customer_id<=20 GROUP BY o.customer_id,o.id,o.order_date),
+    c AS (SELECT *, sum(order_value) OVER (PARTITION BY customer_id ORDER BY order_date, order_id) AS cumulative_spend FROM v)
+    SELECT DISTINCT ON (customer_id) customer_id, order_id, order_date, cumulative_spend FROM c WHERE cumulative_spend > 10000 ORDER BY customer_id, order_date, order_id
+
+wf-026:
+  wrong: |
+    WITH r AS (SELECT t.account_id, t.tx_date, sum(t.amount) OVER (PARTITION BY t.account_id ORDER BY t.tx_date) AS bal FROM transactions t JOIN accounts a ON a.id=t.account_id WHERE a.type='checking' AND a.id<=60)
+    SELECT account_id, min(tx_date) AS first_negative_date, min(bal) AS balance FROM r WHERE bal<0 GROUP BY account_id ORDER BY account_id
+  right: |
+    WITH r AS (SELECT t.account_id, t.tx_date, t.id, sum(t.amount) OVER (PARTITION BY t.account_id ORDER BY t.tx_date, t.id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS bal FROM transactions t JOIN accounts a ON a.id=t.account_id WHERE a.type='checking' AND a.id<=60)
+    SELECT DISTINCT ON (account_id) account_id, tx_date AS first_negative_date, bal AS balance FROM r WHERE bal<0 ORDER BY account_id, tx_date, id
+
+wf-027:
+  wrong: |
+    WITH s AS (SELECT o.customer_id, sum(i.quantity*i.unit_price) AS spend FROM orders o JOIN order_items i ON i.order_id=o.id WHERE o.status<>'cancelled' GROUP BY o.customer_id),
+    b AS (SELECT min(spend) AS lo, max(spend) AS hi FROM s)
+    SELECT 11 - least(10, 1 + floor(10*(s.spend-b.lo)/(b.hi-b.lo))::int) AS decile, count(*) AS customers, sum(s.spend) AS revenue FROM s, b GROUP BY 1 ORDER BY 1
+  right: |
+    WITH s AS (SELECT o.customer_id, sum(i.quantity*i.unit_price) AS spend FROM orders o JOIN order_items i ON i.order_id=o.id WHERE o.status<>'cancelled' GROUP BY o.customer_id),
+    r AS (SELECT *, row_number() OVER (ORDER BY spend DESC, customer_id) AS rn, count(*) OVER () AS total FROM s)
+    SELECT CASE WHEN rn <= (total % 10) * (total / 10 + 1) THEN (rn - 1) / (total / 10 + 1) + 1 ELSE total % 10 + (rn - (total % 10) * (total / 10 + 1) - 1) / (total / 10) + 1 END AS decile, count(*) AS customers, sum(spend) AS revenue FROM r GROUP BY 1 ORDER BY 1
+
+wf-028:
+  wrong: |
+    WITH x AS (SELECT id, hire_date, salary, round(avg(salary) OVER (ORDER BY hire_date, id ROWS BETWEEN 3 PRECEDING AND CURRENT ROW),2) AS prev3_avg FROM employees)
+    SELECT id, salary, prev3_avg, round(salary - prev3_avg,2) AS diff FROM x WHERE hire_date>='2020-01-01' ORDER BY hire_date, id
+  right: |
+    WITH r AS (SELECT id, hire_date, salary, row_number() OVER (ORDER BY hire_date, id) AS rn FROM employees),
+    x AS (SELECT a.id, a.hire_date, a.salary, round(avg(b.salary),2) AS prev3_avg, count(*) AS n FROM r a JOIN r b ON b.rn BETWEEN a.rn-3 AND a.rn-1 GROUP BY a.id, a.hire_date, a.salary)
+    SELECT id, salary, prev3_avg, round(salary - prev3_avg,2) AS diff FROM x WHERE hire_date>='2020-01-01' AND n=3 ORDER BY hire_date, id
+
+wf-029:
+  wrong: |
+    SELECT id, tx_date, amount, sum(amount) OVER (ORDER BY tx_date, id ROWS BETWEEN 29 PRECEDING AND CURRENT ROW) AS rolling_30d FROM transactions WHERE account_id=5 ORDER BY tx_date, id
+  right: |
+    SELECT t.id, t.tx_date, t.amount, (SELECT sum(x.amount) FROM transactions x WHERE x.account_id=t.account_id AND x.tx_date BETWEEN t.tx_date-29 AND t.tx_date) AS rolling_30d
+    FROM transactions t WHERE t.account_id=5 ORDER BY t.tx_date, t.id
+
+wf-030:
+  wrong: |
+    WITH p AS (SELECT product_id, sum(quantity*unit_price) AS revenue FROM order_items GROUP BY product_id),
+    c AS (SELECT *, sum(revenue) OVER (ORDER BY revenue DESC, product_id) AS cum, sum(revenue) OVER () AS total FROM p)
+    SELECT product_id, revenue, round(100*cum/total,2) AS cum_pct FROM c WHERE round(100*cum/total,2) <= 50 ORDER BY revenue DESC, product_id
+  right: |
+    WITH p AS (SELECT product_id, sum(quantity*unit_price) AS revenue FROM order_items GROUP BY product_id),
+    c AS (SELECT *, sum(revenue) OVER (ORDER BY revenue DESC, product_id ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) AS before_sum, sum(revenue) OVER (ORDER BY revenue DESC, product_id) AS cum, sum(revenue) OVER () AS total FROM p)
+    SELECT product_id, revenue, round(100*cum/total,2) AS cum_pct FROM c WHERE coalesce(before_sum,0)*2 < total ORDER BY revenue DESC, product_id

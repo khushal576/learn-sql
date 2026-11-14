@@ -1,0 +1,36 @@
+id: ag-016
+title: Median vs average order value per country
+topic: aggregation
+tags:
+- percentile_cont
+- median
+- within-group
+difficulty: hard
+dataset: ecommerce
+prompt: |
+  Pricing analysts know that the average order value is dragged around by a few huge orders, so they also want the **median**.
+  For every customer **country**, over its **delivered** orders (an order's value is the sum of `quantity * unit_price` over its lines),
+  report the median and the average order value, both **rounded to 2 decimals**.
+
+  Return `country`, `median_order_value` and `avg_order_value`, ordered by `country`.
+solution_sql: |
+  WITH ov AS (
+    SELECT o.id, o.customer_id, sum(i.quantity * i.unit_price) AS value
+    FROM orders o JOIN order_items i ON i.order_id = o.id
+    WHERE o.status = 'delivered'
+    GROUP BY o.id, o.customer_id)
+  SELECT c.country,
+         round((percentile_cont(0.5) WITHIN GROUP (ORDER BY ov.value))::numeric, 2) AS median_order_value,
+         round(avg(ov.value), 2) AS avg_order_value
+  FROM ov JOIN customers c ON c.id = ov.customer_id
+  GROUP BY c.country
+  ORDER BY c.country
+compare:
+  order_matters: true
+hints:
+- There is no MEDIAN() aggregate in Postgres - look for an ordered-set aggregate.
+- First reduce the lines to one value per order, then take the median over orders.
+trap: |
+  Using `AVG` as the "median" gives a different number in every country (e.g. Japan 788 vs a median of 636) - the whole point of the median is that it resists the large orders. The other pitfall: computing the median over order *lines* instead of over orders; collapse to one row per order first. Postgres has `percentile_cont(0.5) WITHIN GROUP (ORDER BY x)` (interpolates) and `percentile_disc` (an actual value).
+followup: |
+  "Median and `percentile_cont` vs `percentile_disc` - when do they differ?" (With an even number of values `cont` averages the two middle ones, `disc` returns the lower one that really exists.)

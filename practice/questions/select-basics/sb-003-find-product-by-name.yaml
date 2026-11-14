@@ -1,0 +1,20 @@
+id: sb-003
+title: "The customer who forgot the product name"
+topic: select-basics
+tags: [like, ilike, pattern]
+difficulty: easy
+dataset: ecommerce
+prompt: |
+  Support has a ticket: *"I bought a pro laptop last year but I can't remember the exact name."*
+  Find the products whose name contains the word **pro** followed later by the word **laptop**, in any capitalisation.
+
+  Return `id`, `name` and `price`, ordered by `id`.
+solution_sql: |
+  SELECT id, name, price FROM products WHERE name ILIKE '%pro%laptop%' ORDER BY id
+compare: {order_matters: true}
+hints:
+  - "`%` matches any run of characters. Which operator ignores capitalisation?"
+trap: |
+  `LIKE` is case-sensitive: `LIKE '%pro%laptop%'` finds nothing because the names say `Pro Laptop`. `ILIKE` (or `lower(name) LIKE …`) fixes it. A second trap: `_` is also a wildcard (one character), so searching for a literal underscore or percent sign needs escaping.
+followup: |
+  "That query cannot use a normal B-tree index because of the leading `%`. How would you make it fast on 50 million products?" (A trigram index: `pg_trgm` + GIN — see your chapter 22.)

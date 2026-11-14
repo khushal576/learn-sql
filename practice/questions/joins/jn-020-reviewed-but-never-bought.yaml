@@ -1,0 +1,27 @@
+id: jn-020
+title: Reviews of a product the reviewer never bought
+topic: joins
+tags: [anti-join, composite-key, not-exists]
+difficulty: hard
+dataset: ecommerce
+prompt: |
+  Trust & Safety wants to flag **reviews written by a customer who never bought that very product** (the same customer,
+  the same product — buying other products doesn't count). Look only at reviews of the **first 5 products** (`product_id` 1 to 5).
+
+  Return `review_id`, `customer_id` and `product_id`, ordered by `review_id`.
+solution_sql: |
+  SELECT r.id AS review_id, r.customer_id, r.product_id
+  FROM reviews r
+  WHERE r.product_id <= 5
+    AND NOT EXISTS (
+      SELECT 1 FROM orders o JOIN order_items i ON i.order_id = o.id
+      WHERE o.customer_id = r.customer_id AND i.product_id = r.product_id)
+  ORDER BY r.id
+compare: {order_matters: true}
+hints:
+  - "The match has to hold on a PAIR: this customer AND this product."
+  - "Which join path connects a customer to a product they bought?"
+trap: |
+  The anti-join key is **two columns**. `customer_id NOT IN (customers who ordered)` or `product_id NOT IN (products ever sold)` each ignore half the condition and answer a different question. It needs a correlated `NOT EXISTS` on *both* columns — a tuple-level anti-join (and, for the same reason, NOT IN with a NULL anywhere would return nothing).
+followup: |
+  "Make it fast for 100 million order lines." (Index `order_items(product_id, order_id)` and `orders(customer_id, id)`, so the NOT EXISTS probes instead of scanning.) "The same with a LEFT JOIN?" (Join on both keys, then `WHERE i.order_id IS NULL`.)

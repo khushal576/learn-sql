@@ -1,0 +1,35 @@
+id: wf-030
+title: "Products that make the first half of revenue"
+topic: window-functions
+tags: [pareto, cumulative-share, boundary]
+difficulty: hard
+dataset: ecommerce
+prompt: |
+  Merchandising runs a Pareto analysis. Revenue per product = `sum(quantity * unit_price)` over all order lines (any status). Sort
+  products by revenue descending (ties by `product_id`) and accumulate the share of **total** revenue.
+
+  Return the products needed to cover the first **50%** of revenue: every product whose cumulative share **before** adding it is below
+  50% - so the product that crosses the 50% mark is included. Output `product_id`, `revenue`, `cum_pct` (cumulative share **including**
+  this product, as a percentage 0-100, rounded to 2 decimals), ordered by revenue descending, `product_id`.
+solution_sql: |
+  WITH p AS (
+    SELECT product_id, sum(quantity * unit_price) AS revenue
+    FROM order_items
+    GROUP BY product_id
+  ), c AS (
+    SELECT *, sum(revenue) OVER (ORDER BY revenue DESC, product_id) AS cum,
+              sum(revenue) OVER () AS total
+    FROM p
+  )
+  SELECT product_id, revenue, round(100 * cum / total, 2) AS cum_pct
+  FROM c
+  WHERE 100 * (cum - revenue) / total < 50
+  ORDER BY revenue DESC, product_id
+compare: {order_matters: true}
+hints:
+  - "Cumulative share = running sum / grand total (a second window without ORDER BY)."
+  - "The condition is about the cumulative share BEFORE the row: running sum minus the row's own revenue."
+trap: |
+  The intuitive `WHERE cum_pct <= 50` drops the product that crosses the line: product 34 reaches 50.80% and is excluded, so the list stops at 26 products and covers only 49.52% of revenue instead of at least 50%. 'Cover at least half' means keeping the row whose share *before* it is still under 50%. Also, the ORDER BY needs the `product_id` tie-break so ties do not change which rows are cumulated.
+followup: |
+  "How many products make 80% of revenue?" (Same pattern with 80; compare with the share of the catalogue - the classic 80/20 check.) "Why a second window `sum() OVER ()` instead of a subquery?" (One pass, no re-scan.)

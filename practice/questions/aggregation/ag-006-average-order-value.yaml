@@ -1,0 +1,29 @@
+id: ag-006
+title: Average order value 2023
+topic: aggregation
+tags:
+- avg
+- fan-out
+- count-distinct
+difficulty: medium
+dataset: ecommerce
+prompt: |
+  The shop's KPI "average order value" (AOV) is the revenue of a **delivered** order, averaged over all delivered orders
+  placed in **2023**. An order's revenue is the sum of `quantity * unit_price` over its lines.
+
+  Return one row with the column `aov`, **rounded to 2 decimals**.
+solution_sql: |
+  SELECT round(sum(i.quantity * i.unit_price) / count(DISTINCT o.id), 2) AS aov
+  FROM orders o
+  JOIN order_items i ON i.order_id = o.id
+  WHERE o.status = 'delivered'
+    AND o.order_date >= '2023-01-01' AND o.order_date < '2024-01-01'
+compare:
+  order_matters: false
+hints:
+- 'After joining the lines, what is one row: an order or a line?'
+- Total revenue divided by the number of orders is an average of order values.
+trap: |
+  `AVG(quantity * unit_price)` over the joined rows averages **order lines**, not orders - the result (about 666) is far below the real AOV (about 1760), because an order has several lines. Divide the total revenue by `COUNT(DISTINCT o.id)`, or sum per order first and average that.
+followup: |
+  "Why is the AOV of the *median* order more useful to a business with a few huge orders?" (The mean is pulled up by outliers; `percentile_cont(0.5) WITHIN GROUP` gives the typical order - see the median question later.)

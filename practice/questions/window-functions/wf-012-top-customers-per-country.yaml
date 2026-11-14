@@ -1,0 +1,39 @@
+id: wf-012
+title: Top 3 customers per country by delivered orders
+topic: window-functions
+tags: [rank, top-n-per-group, ties, cte]
+difficulty: hard
+dataset: ecommerce
+prompt: |
+  The regional managers want a leaderboard: in each **country**, the customers with the most **delivered** orders.
+  Rank customers inside their country by the number of delivered orders (highest first) with **RANK**, and keep everyone with `rnk <= 3`
+  (so customers tied on the same count share a rank and are all kept).
+  Return `country`, `customer_id`, `delivered_orders`, `rnk`, ordered by `country`, `rnk`, then `customer_id`.
+solution_sql: |
+  WITH d AS (
+    SELECT c.country, c.id AS customer_id, count(*) AS delivered_orders
+    FROM customers c JOIN orders o ON o.customer_id = c.id
+    WHERE o.status = 'delivered'
+    GROUP BY c.country, c.id
+  ), r AS (
+    SELECT *, rank() OVER (PARTITION BY country ORDER BY delivered_orders DESC) AS rnk FROM d
+  )
+  SELECT country, customer_id, delivered_orders, rnk FROM r WHERE rnk <= 3
+  ORDER BY country, rnk, customer_id
+compare: {order_matters: true}
+hints:
+  - "Count first (GROUP BY country, customer), then rank those counts."
+  - "Many customers have the same number of delivered orders: think about what a tie at the cut-off should do."
+trap: |
+  `ROW_NUMBER() <= 3` cuts the tied customers at the boundary arbitrarily (you need a tie-break to even make it deterministic): here it returns 24 rows while RANK returns 28, so 4 customers who are tied with the 3rd place would be silently left out of the leaderboard.
+followup: |
+  "Customers with zero delivered orders: do they appear?" (No: the inner join drops them. Start from customers with a LEFT JOIN if they must rank too.)
+alternatives:
+  - |
+    WITH d AS (
+      SELECT c.country, c.id AS customer_id, count(*) AS n FROM customers c JOIN orders o ON o.customer_id = c.id
+      WHERE o.status = 'delivered' GROUP BY c.country, c.id)
+    SELECT country, customer_id, n AS delivered_orders,
+           (SELECT count(*) + 1 FROM d x WHERE x.country = d.country AND x.n > d.n) AS rnk
+    FROM d WHERE (SELECT count(*) FROM d x WHERE x.country = d.country AND x.n > d.n) < 3
+    ORDER BY 1, 4, 2

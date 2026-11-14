@@ -1,0 +1,13 @@
+# The order the questions are done in (see ../PATH.md). Topics not listed come last. Inside a topic: by id.
+topics:
+  - select-basics
+  - joins
+  - aggregation
+  - subqueries
+  - window-functions
+  - recursive-cte
+  - dates-strings
+  - interview-patterns
+  - data-modelling
+  - json-arrays
+  - performance

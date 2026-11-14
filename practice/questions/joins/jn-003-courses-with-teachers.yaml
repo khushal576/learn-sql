@@ -1,0 +1,22 @@
+id: jn-003
+title: Course catalogue with teacher names
+topic: joins
+tags: [left-join, coalesce, unmatched-rows]
+difficulty: easy
+dataset: school
+prompt: |
+  The school is printing its course catalogue. List **every course** with the name of its teacher.
+  Courses that have **no teacher assigned yet** must still appear, showing `Unassigned` as the teacher.
+
+  Return `title` and `teacher`, in course `id` order.
+solution_sql: |
+  SELECT c.title, COALESCE(t.name, 'Unassigned') AS teacher
+  FROM courses c LEFT JOIN teachers t ON t.id = c.teacher_id
+  ORDER BY c.id
+compare: {order_matters: true}
+hints:
+  - "Which table must keep ALL its rows? Put it on the preserved side of an outer join."
+trap: |
+  A plain `JOIN` (inner join) silently drops the two courses whose `teacher_id` is NULL — the catalogue looks complete but is two courses short. The "list everything, even when there is no match" wording means **LEFT JOIN from the table you want all of**.
+followup: |
+  "Now list every teacher with their course, including teachers with no course." (Switch the preserved side — or use a FULL JOIN to get both at once.)

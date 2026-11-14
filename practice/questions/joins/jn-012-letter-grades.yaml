@@ -1,0 +1,24 @@
+id: jn-012
+title: Letter grades from score bands
+topic: joins
+tags: [non-equi-join, between, boundaries]
+difficulty: medium
+dataset: school
+prompt: |
+  The table `grade_bands` maps a score to a letter: a score belongs to a band when
+  `min_score <= score < max_score` (the minimum is **included**, the maximum is **excluded** — so a 90 is an **A**, not a B).
+
+  For the **final exams of courses 1, 2 and 3**, show each student's letter grade.
+  Return `student_id`, `course_id`, `score` and `letter`, ordered by `student_id`, `course_id`.
+solution_sql: |
+  SELECT s.student_id, s.course_id, s.score, b.letter
+  FROM scores s JOIN grade_bands b ON s.score >= b.min_score AND s.score < b.max_score
+  WHERE s.exam = 'final' AND s.course_id <= 3
+  ORDER BY s.student_id, s.course_id
+compare: {order_matters: true}
+hints:
+  - "Look at the rows of grade_bands: B ends at 90 and A starts at 90."
+trap: |
+  `BETWEEN min_score AND max_score` is **inclusive at both ends**, so a score of exactly 90 matches both A (90–101) and B (80–90): the student appears **twice**, once with each letter (five students here). Range joins must use a half-open interval: `>= min AND < max`.
+followup: |
+  "Ranges that overlap would still duplicate rows — how would you prevent that in the table itself?" (An exclusion constraint on `int4range(min_score, max_score)` — see your chapter 23.)

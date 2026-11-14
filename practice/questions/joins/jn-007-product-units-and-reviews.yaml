@@ -1,0 +1,26 @@
+id: jn-007
+title: Units sold and reviews per product
+topic: joins
+tags: [fan-out, pre-aggregation, two-child-tables]
+difficulty: medium
+dataset: ecommerce
+prompt: |
+  For the **first 10 products** (`id` 1 to 10) the merchandising team wants two numbers side by side:
+  the total **units sold** (sum of `quantity` over all order lines) and the **number of reviews**.
+
+  Return `product_id`, `units_sold` and `review_count`, ordered by `product_id`.
+solution_sql: |
+  SELECT p.id AS product_id, COALESCE(i.units, 0) AS units_sold, COALESCE(r.n, 0) AS review_count
+  FROM products p
+  LEFT JOIN (SELECT product_id, sum(quantity) AS units FROM order_items GROUP BY product_id) i ON i.product_id = p.id
+  LEFT JOIN (SELECT product_id, count(*) AS n FROM reviews GROUP BY product_id) r ON r.product_id = p.id
+  WHERE p.id <= 10
+  ORDER BY p.id
+compare: {order_matters: true}
+hints:
+  - "Each product has many order lines AND many reviews. What happens when you join both to the product?"
+  - "Aggregate each child table on its own before joining."
+trap: |
+  Joining **both** children to the product creates every combination: a product with 130 order lines and 23 reviews becomes 2 990 rows, so `SUM(quantity)` is inflated 23× and `COUNT(*)` is nonsense. `COUNT(DISTINCT …)` rescues the count but never the sum. Aggregate each child to one row per product *first*, then join.
+followup: |
+  "How would you spot this bug in production?" (Totals that are suspiciously large; compare against `SELECT sum(quantity) FROM order_items` — joined aggregates must reconcile to the source.)

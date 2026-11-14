@@ -1,0 +1,28 @@
+id: wf-018
+title: "Salary change versus the previous raise"
+topic: window-functions
+tags: [lag, partition-by, percent-change]
+difficulty: medium
+dataset: hr
+prompt: |
+  HR is reviewing pay progression for the first 15 employees (**`emp_id` 1 to 15**) using `salary_history`.
+
+  For every history row return `emp_id`, `effective_date`, `salary`, `change` (this salary minus the same employee's previous salary) and
+  `pct_change` (that change as a percentage of the previous salary, **rounded to 1 decimal**). An employee's first row has no previous
+  salary, so `change` and `pct_change` are NULL there. Order by `emp_id`, `effective_date`.
+solution_sql: |
+  SELECT emp_id, effective_date, salary,
+         salary - lag(salary) OVER w AS change,
+         round(100.0 * (salary - lag(salary) OVER w) / lag(salary) OVER w, 1) AS pct_change
+  FROM salary_history
+  WHERE emp_id <= 15
+  WINDOW w AS (PARTITION BY emp_id ORDER BY effective_date)
+  ORDER BY emp_id, effective_date
+compare: {order_matters: true}
+hints:
+  - "`LAG(salary)` looks one row back inside the window. Which rows count as 'back'?"
+  - "What should the previous row of an employee's very first salary be?"
+trap: |
+  Without `PARTITION BY emp_id`, `LAG` just looks at the previous row of the whole result: employee 2's first salary is compared with employee 1's last one, so a bogus 'change' (a big negative number) appears on every employee's first row instead of NULL. Always partition before you offset.
+followup: |
+  "Show only the employees whose latest raise was smaller than their previous raise." (LAG on the change itself, or two-level window.) "What if you want 0 instead of NULL for the first row?" (`lag(salary, 1, salary)` - the third argument is the default.)

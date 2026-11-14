@@ -1,0 +1,34 @@
+id: wf-027
+title: "Customer spend deciles"
+topic: window-functions
+tags: [ntile, buckets, cte]
+difficulty: hard
+dataset: ecommerce
+prompt: |
+  Marketing wants to split customers into **10 equally sized groups by spend** (decile 1 = the biggest spenders). Spend per customer =
+  `sum(quantity * unit_price)` over the order lines of non-cancelled orders; only customers with such spend take part.
+  Rank customers by spend descending, ties by `customer_id`, and cut that list into 10 buckets with the same number of customers (when
+  the count is not divisible by 10, the first buckets get one extra customer).
+
+  Return `decile`, `customers` (how many customers) and `revenue` (their total spend), ordered by `decile`.
+solution_sql: |
+  WITH s AS (
+    SELECT o.customer_id, sum(i.quantity * i.unit_price) AS spend
+    FROM orders o JOIN order_items i ON i.order_id = o.id
+    WHERE o.status <> 'cancelled'
+    GROUP BY o.customer_id
+  ), n AS (
+    SELECT *, ntile(10) OVER (ORDER BY spend DESC, customer_id) AS decile FROM s
+  )
+  SELECT decile, count(*) AS customers, sum(spend) AS revenue
+  FROM n
+  GROUP BY decile
+  ORDER BY decile
+compare: {order_matters: true}
+hints:
+  - "`NTILE(n)` hands out bucket numbers by position in the ordered list."
+  - "Does a bucket of equal size mean a bucket of equal money?"
+trap: |
+  `NTILE` splits by ROW COUNT, not by value: decile 1 here holds the top 38 customers with 3.57 million of revenue, decile 10 holds 37 customers with only 0.2 million. People often reach for `width_bucket` or `(spend - min) / (max - min)` thinking 'decile' means value ranges - that puts almost everybody into one or two buckets (and the group sizes are wildly different). NTILE also needs the explicit `customer_id` tie-break to be deterministic, and 372 customers do not divide by 10: the first two deciles get 38.
+followup: |
+  "Two customers with exactly the same spend can land in different deciles - is that fair?" (NTILE may put equal values in different buckets; use `PERCENT_RANK`/`CUME_DIST` if ties must stay together.)

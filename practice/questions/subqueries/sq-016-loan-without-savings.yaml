@@ -1,0 +1,27 @@
+id: sq-016
+title: Borrowers with no savings account
+topic: subqueries
+tags: [exists, not-exists, anti-join]
+difficulty: hard
+dataset: bank
+prompt: |
+  Risk wants the **customers who have at least one loan but no savings account** (`accounts.type = 'savings'`, open or closed). Customers that have no account at all count as having no savings account.
+
+  Return `customer_id`, `name`, ordered by `customer_id`.
+solution_sql: |
+  SELECT c.id AS customer_id, c.name
+  FROM customers c
+  WHERE EXISTS (SELECT 1 FROM loans l WHERE l.customer_id = c.id)
+    AND NOT EXISTS (SELECT 1 FROM accounts a WHERE a.customer_id = c.id AND a.type = 'savings')
+  ORDER BY c.id
+compare: {order_matters: true}
+hints:
+  - "\"Has a loan\" and \"has no savings account\" are two separate questions about the same customer."
+  - "Which account types should the negated subquery look at?"
+trap: |
+  The tempting `JOIN accounts a ... WHERE a.type <> 'savings'` does not say "no savings account": it keeps any customer who has *some* non-savings account, savings or not, and repeats them once per account (180 rows, 150 distinct customers, instead of 75). "None of X" is a statement about the whole set of rows and needs `NOT EXISTS` / an anti-join, not `<>` on rows.
+followup: |
+  "Same with a LEFT JOIN?" (`LEFT JOIN accounts a ON a.customer_id = c.id AND a.type = 'savings' WHERE a.id IS NULL` - the type filter belongs in the ON clause.) "A customer with several loans?" (`EXISTS` stops at the first match, so no duplicates; a `JOIN loans` would repeat the customer.)
+alternatives:
+  - |
+    SELECT c.id AS customer_id, c.name FROM customers c JOIN loans l ON l.customer_id = c.id LEFT JOIN accounts a ON a.customer_id = c.id AND a.type = 'savings' WHERE a.id IS NULL GROUP BY c.id, c.name ORDER BY c.id

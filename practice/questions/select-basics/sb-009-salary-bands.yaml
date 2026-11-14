@@ -1,0 +1,27 @@
+id: sb-009
+title: Headcount per salary band
+topic: select-basics
+tags: [case, boundaries, group-by]
+difficulty: medium
+dataset: hr
+prompt: |
+  Compensation review. Put every employee into a salary band and count the people per band:
+
+  - **junior**: salary below 60 000
+  - **mid**: 60 000 up to (but not including) 100 000
+  - **senior**: 100 000 and above
+
+  Return `band` and `headcount`, ordered junior, mid, senior.
+solution_sql: |
+  SELECT band, count(*) AS headcount
+  FROM (SELECT CASE WHEN salary < 60000 THEN 'junior' WHEN salary < 100000 THEN 'mid' ELSE 'senior' END AS band FROM employees) t
+  GROUP BY band
+  ORDER BY CASE band WHEN 'junior' THEN 1 WHEN 'mid' THEN 2 ELSE 3 END
+compare: {order_matters: true}
+hints:
+  - "CASE checks its WHEN branches top to bottom and stops at the first true one."
+  - "Some people earn exactly 60 000 or exactly 100 000."
+trap: |
+  `BETWEEN 60000 AND 100000` is inclusive at both ends, so someone earning exactly 100 000 lands in **mid** — and a `>= 100000` senior branch counts them again. Band edges must belong to exactly one band: use `<` on the upper edge.
+followup: |
+  "Add a band called 'unknown' for people with no salary." (A NULL salary falls into the ELSE branch — it would be counted as senior! Handle `salary IS NULL` explicitly, first.)

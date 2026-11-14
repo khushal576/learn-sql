@@ -1,0 +1,34 @@
+id: wf-013
+title: ROW_NUMBER, RANK and DENSE_RANK side by side
+topic: window-functions
+tags: [row-number, rank, dense-rank, ties]
+difficulty: hard
+dataset: hr
+prompt: |
+  A colleague keeps confusing the three ranking functions, so you build a demo on department **1**'s employees.
+  Return `id`, `salary`, `row_num` (`ROW_NUMBER`, salary descending, the lower `id` first when salaries tie), `rnk` (`RANK` by salary descending)
+  and `dense_rnk` (`DENSE_RANK` by salary descending), ordered by `salary` descending, then `id`.
+  (Be ready to explain the differences you see among the people paid 60000.)
+solution_sql: |
+  SELECT id, salary,
+         row_number() OVER (ORDER BY salary DESC, id) AS row_num,
+         rank() OVER (ORDER BY salary DESC) AS rnk,
+         dense_rank() OVER (ORDER BY salary DESC) AS dense_rnk
+  FROM employees
+  WHERE dept_id = 1
+  ORDER BY salary DESC, id
+compare: {order_matters: true}
+hints:
+  - "All three functions share the same shape: fn() OVER (ORDER BY ...)."
+  - "Only ROW_NUMBER needs the extra `id` tie-break to be deterministic; RANK and DENSE_RANK give tied rows the same value."
+trap: |
+  The six people on 60000 all get the same `rnk` and `dense_rnk`, but different `row_num`s. After the tie RANK **skips** numbers (the next salary is rank 26 with RANK but 21 with DENSE_RANK) while DENSE_RANK continues with the very next number. Mixing the functions up (RANK where you wanted DENSE_RANK) changes every row below the first tie.
+followup: |
+  "Which one do you use for 'the 3rd highest distinct salary'?" (DENSE_RANK = 3.) "And for pagination?" (ROW_NUMBER, because it is unique.)
+alternatives:
+  - |
+    SELECT e.id, e.salary,
+           (SELECT count(*) FROM employees x WHERE x.dept_id = 1 AND (x.salary > e.salary OR (x.salary = e.salary AND x.id <= e.id))) AS row_num,
+           (SELECT count(*) + 1 FROM employees x WHERE x.dept_id = 1 AND x.salary > e.salary) AS rnk,
+           (SELECT count(DISTINCT x.salary) + 1 FROM employees x WHERE x.dept_id = 1 AND x.salary > e.salary) AS dense_rnk
+    FROM employees e WHERE e.dept_id = 1 ORDER BY e.salary DESC, e.id

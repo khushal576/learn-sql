@@ -1,0 +1,33 @@
+id: wf-014
+title: Transactions far above the account's norm
+topic: window-functions
+tags: [avg-over, subquery, filter-on-window]
+difficulty: hard
+dataset: bank
+prompt: |
+  The risk team flags transactions that are unusually large for their own account. For accounts **1 to 20**, find every transaction whose
+  **absolute** `amount` is **more than 3 times** the average **absolute** amount of that account (all of the account's transactions count in the average).
+  Return `tx_id` (the transaction `id`), `account_id`, `amount` and `avg_abs` (the account's average absolute amount, rounded to 2 decimals),
+  ordered by `account_id`, then `tx_id`.
+solution_sql: |
+  SELECT tx_id, account_id, amount, round(avg_abs, 2) AS avg_abs FROM (
+    SELECT id AS tx_id, account_id, amount,
+           avg(abs(amount)) OVER (PARTITION BY account_id) AS avg_abs
+    FROM transactions
+    WHERE account_id <= 20
+  ) t
+  WHERE abs(amount) > 3 * avg_abs
+  ORDER BY account_id, tx_id
+compare: {order_matters: true}
+hints:
+  - "Window functions cannot be used in WHERE: compute the average in a subquery or CTE, filter outside."
+  - "Withdrawals are negative: the average of the plain amounts is not the 'norm' you want."
+trap: |
+  Averaging the signed `amount` (deposits and withdrawals cancel each other) gives a tiny, even negative number, so the rule `abs(amount) > 3 * avg(amount)` flags a very different (much larger) set of rows. Take `abs()` **inside** the average. Putting the window function straight into WHERE is a syntax error.
+followup: |
+  "Same rule, but the average must exclude the transaction itself?" (Use a frame such as ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING EXCLUDE CURRENT ROW.)
+alternatives:
+  - |
+    SELECT t.id AS tx_id, t.account_id, t.amount, round(a.v, 2) AS avg_abs
+    FROM transactions t JOIN (SELECT account_id, avg(abs(amount)) AS v FROM transactions WHERE account_id <= 20 GROUP BY account_id) a ON a.account_id = t.account_id
+    WHERE abs(t.amount) > 3 * a.v ORDER BY t.account_id, t.id

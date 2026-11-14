@@ -1,0 +1,26 @@
+id: sq-003
+title: Runner-up midterm score in course 13
+topic: subqueries
+tags: [scalar-subquery, distinct, ties, max]
+difficulty: easy
+dataset: school
+prompt: |
+  The teacher of **course 13** wants to know the **second-highest distinct midterm score** (exam = `'midterm'`) - the score just below the best one. Two students sharing the top score count as **one** top score.
+
+  Return a single row with one column, `second_highest`.
+solution_sql: |
+  SELECT max(score) AS second_highest
+  FROM scores
+  WHERE course_id = 13 AND exam = 'midterm'
+    AND score < (SELECT max(score) FROM scores WHERE course_id = 13 AND exam = 'midterm')
+compare: {order_matters: false}
+hints:
+  - "How would you describe the second highest value using the highest value?"
+  - "The subquery has to repeat the same `course_id` / `exam` filters."
+trap: |
+  `ORDER BY score DESC LIMIT 1 OFFSET 1` is the textbook answer and it is wrong here: two students scored 100 in course 13, so the second row is another 100, not the runner-up. Skipping rows is not the same as skipping *values* - use `score < (max)` or `SELECT DISTINCT` before the `OFFSET`.
+followup: |
+  "Return NULL instead of an empty result when there is no second value." (`SELECT max(...)` already does: an aggregate without GROUP BY always returns one row, NULL if nothing matches.) "Generalise to the Nth highest." (`SELECT DISTINCT score ... ORDER BY score DESC OFFSET n-1 LIMIT 1`, or `dense_rank()`.)
+alternatives:
+  - |
+    SELECT (SELECT DISTINCT score FROM scores WHERE course_id = 13 AND exam = 'midterm' ORDER BY score DESC LIMIT 1 OFFSET 1) AS second_highest

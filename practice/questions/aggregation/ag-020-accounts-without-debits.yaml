@@ -1,0 +1,31 @@
+id: ag-020
+title: 'Quiet accounts: no debit in Q1 2024'
+topic: aggregation
+tags:
+- having
+- min
+- bool_and
+- negation
+difficulty: hard
+dataset: bank
+prompt: |
+  Compliance is looking for **accounts that were active in the first quarter of 2024** (at least one transaction with `tx_date`
+  from 2024-01-01 to 2024-03-31) but had **no debit** in that quarter, that is, **no transaction with a negative amount**.
+
+  Return `account_id`, ordered by `account_id`.
+solution_sql: |
+  SELECT account_id
+  FROM transactions
+  WHERE tx_date >= '2024-01-01' AND tx_date < '2024-04-01'
+  GROUP BY account_id
+  HAVING min(amount) > 0
+  ORDER BY account_id
+compare:
+  order_matters: true
+hints:
+- A condition about *all* rows of an account is a condition on an aggregate.
+- If the smallest amount of the account is positive, every amount is.
+trap: |
+  `WHERE amount > 0` removes the debits row by row and keeps every account that has *at least one* credit - including accounts that also had debits (621 accounts instead of the 9 correct ones). "Never" is an all-rows statement: it needs `HAVING min(amount) > 0` (or `bool_and(amount > 0)`, or `NOT EXISTS` a debit).
+followup: |
+  "Same result with an anti-join?" (`NOT EXISTS (SELECT 1 FROM transactions d WHERE d.account_id = t.account_id AND d.amount < 0 AND d.tx_date in the quarter)` - and which is easier to extend?)

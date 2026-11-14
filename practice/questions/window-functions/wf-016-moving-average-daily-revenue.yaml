@@ -1,0 +1,32 @@
+id: wf-016
+title: "7-day moving average of daily revenue"
+topic: window-functions
+tags: [moving-average, frame, rows-between]
+difficulty: medium
+dataset: ecommerce
+prompt: |
+  Finance wants a smoothed revenue trend for **January 2023**. Daily revenue = `sum(quantity * unit_price)` of all order lines of
+  non-cancelled orders, grouped by `order_date`.
+
+  Return `day`, `revenue` and `ma7` - the average of the daily revenue of that day and the 6 days before it, rounded to 2 decimals -
+  ordered by `day`. A 7-day average only makes sense with 7 days of history, so `ma7` must be **NULL for the first 6 days** of the month.
+solution_sql: |
+  WITH d AS (
+    SELECT o.order_date AS day, sum(i.quantity * i.unit_price) AS revenue
+    FROM orders o JOIN order_items i ON i.order_id = o.id
+    WHERE o.status <> 'cancelled' AND o.order_date BETWEEN '2023-01-01' AND '2023-01-31'
+    GROUP BY o.order_date
+  )
+  SELECT day, revenue,
+         CASE WHEN row_number() OVER (ORDER BY day) >= 7
+              THEN round(avg(revenue) OVER (ORDER BY day ROWS BETWEEN 6 PRECEDING AND CURRENT ROW), 2) END AS ma7
+  FROM d
+  ORDER BY day
+compare: {order_matters: true}
+hints:
+  - "Aggregate to one row per day first, then put the window on top of that result."
+  - "`ROWS BETWEEN 6 PRECEDING AND CURRENT ROW` is 7 rows. What does it average on day 3?"
+trap: |
+  A window frame is not a minimum: on day 1-6 `AVG(...) OVER (ORDER BY day ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)` happily averages the 1-6 rows that exist, giving a 'moving average' of fewer than 7 days (6 of the 31 rows here differ). You must NULL those rows yourself, e.g. with `row_number() >= 7`. Also remember `ROWS BETWEEN 6 PRECEDING` = 7 rows, not 6.
+followup: |
+  "Now make it a 7-day *calendar* window even if some days have no orders." (Use `RANGE BETWEEN INTERVAL '6 days' PRECEDING AND CURRENT ROW` on the date, or join a generated calendar.)

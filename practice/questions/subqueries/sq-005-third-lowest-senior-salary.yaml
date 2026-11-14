@@ -1,0 +1,29 @@
+id: sq-005
+title: Third rung of the senior pay ladder
+topic: subqueries
+tags: [distinct, limit-offset, scalar-subquery, ties]
+difficulty: medium
+dataset: hr
+prompt: |
+  Compensation defines the **senior pay band** as every salary of **60000 or more**. They want to know which employee(s) earn the **third-lowest distinct salary within that band** (the lowest value is rank 1, equal salaries share a rank).
+
+  Return `id`, `name`, `salary` of everyone earning that salary, ordered by `id`.
+solution_sql: |
+  SELECT id, name, salary
+  FROM employees
+  WHERE salary = (SELECT DISTINCT salary FROM employees
+                  WHERE salary >= 60000
+                  ORDER BY salary
+                  LIMIT 1 OFFSET 2)
+  ORDER BY id
+compare: {order_matters: true}
+hints:
+  - "Nine people earn exactly the same lowest salary in the band. How many *values* is that?"
+  - "Make the list of salaries unique before you skip two of them."
+trap: |
+  Without `DISTINCT`, `OFFSET 2` skips two *rows*, and since nine employees earn exactly 60000 the third row is still 60000 - the query returns those nine people instead of the one who earns 60602. Ranking values means de-duplicating first (`DISTINCT`, or `dense_rank()`).
+followup: |
+  "Use a window function instead." (`dense_rank() OVER (ORDER BY salary)` over the band, keep rank 3 - the rank numbers ties the way the question does.) "What if the band has fewer than 3 distinct salaries?" (The scalar subquery returns NULL, `salary = NULL` is never true, and the result is empty - which is usually what you want.)
+alternatives:
+  - |
+    SELECT id, name, salary FROM (SELECT id, name, salary, dense_rank() OVER (ORDER BY salary) r FROM employees WHERE salary >= 60000) t WHERE r = 3 ORDER BY id

@@ -1,0 +1,29 @@
+id: ag-002
+title: Order pipeline by status
+topic: aggregation
+tags:
+- group-by
+- count
+- ties
+difficulty: easy
+dataset: ecommerce
+prompt: |
+  Operations wants a quick picture of the order pipeline: how many orders are in each **status**, the biggest status first.
+  Several statuses have exactly the same number of orders, and the report must come out the same on every run, so break ties
+  alphabetically by status.
+
+  Return `status` and `orders`, ordered by `orders` descending, then `status` ascending.
+solution_sql: |
+  SELECT status, count(*) AS orders
+  FROM orders
+  GROUP BY status
+  ORDER BY orders DESC, status
+compare:
+  order_matters: true
+hints:
+- GROUP BY the column you want one row for; count(*) counts the rows in each group.
+- 'Two statuses can have the same count: what decides their order then?'
+trap: |
+  **Ties.** `placed` and `returned` both have 600 orders (and `cancelled` / `shipped` both 300). `ORDER BY orders DESC` alone leaves their relative order up to the executor, so the report can flip between runs. A second sort key (`status`) makes the order deterministic.
+followup: |
+  "Now show each status as a percentage of all orders." (`count(*) * 100.0 / sum(count(*)) OVER ()` - a window over the grouped result.)

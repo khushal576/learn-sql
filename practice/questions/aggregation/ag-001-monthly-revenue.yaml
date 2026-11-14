@@ -1,0 +1,22 @@
+id: ag-001
+title: Revenue per month for delivered orders
+topic: aggregation
+tags: [group-by, date_trunc, sum]
+difficulty: medium
+dataset: ecommerce
+prompt: |
+  For orders with status **delivered**, return revenue per month. Revenue of an order is the sum of
+  `quantity * unit_price` over its lines. Output `month` (first day of the month, as a date) and `revenue`,
+  ordered by month.
+solution_sql: |
+  SELECT date_trunc('month', o.order_date)::date AS month, sum(i.quantity * i.unit_price) AS revenue
+  FROM orders o JOIN order_items i ON i.order_id = o.id
+  WHERE o.status = 'delivered'
+  GROUP BY 1 ORDER BY 1
+compare: {order_matters: true}
+hints:
+  - "date_trunc('month', ...) turns any date into the first day of its month."
+trap: |
+  Filtering `status = 'delivered'` AFTER joining is right here, but summing `unit_price` without `quantity` is the classic mistake. And months with no delivered orders do not appear at all — a gap, not a zero.
+followup: |
+  "Finance wants a row for every month, with 0 for empty months — how?" (generate_series calendar LEFT JOIN, COALESCE.)

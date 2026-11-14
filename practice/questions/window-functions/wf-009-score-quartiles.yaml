@@ -1,0 +1,28 @@
+id: wf-009
+title: Final exam quartiles
+topic: window-functions
+tags: [ntile, buckets]
+difficulty: medium
+dataset: school
+prompt: |
+  The teacher of **course 1** wants to split the students who took the **final** exam into four performance groups:
+  quartile 1 = the highest scores, quartile 4 = the lowest. Use `NTILE(4)` over the final scores ordered **highest first**,
+  with the lower `student_id` first if two scores tie.
+  Return `student_id`, `score`, `quartile`, ordered by `score` descending, then `student_id`.
+solution_sql: |
+  SELECT student_id, score, ntile(4) OVER (ORDER BY score DESC, student_id) AS quartile
+  FROM scores
+  WHERE course_id = 1 AND exam = 'final'
+  ORDER BY score DESC, student_id
+compare: {order_matters: true}
+hints:
+  - "NTILE(n) needs an ORDER BY in OVER; quartile 1 gets the first rows of that order."
+  - "Filter on course and exam before the window runs (WHERE)."
+trap: |
+  NTILE splits by **row count**, not by score ranges: 22 students do not divide by 4, so the first two quartiles get 6 students and the last two get 5. Rebuilding it by hand with `ceil(position * 4.0 / count)` gives 5, 6, 5, 6 instead: a different student set in the quartiles 2 to 4. NTILE also does not care about ties: equal scores can land in different quartiles.
+followup: |
+  "How would you make equal scores always share a quartile?" (Use percent_rank() or cume_dist() on the score and bucket on it: ties then get the same value.)
+alternatives:
+  - |
+    SELECT student_id, score, ntile(4) OVER w AS quartile FROM scores
+    WHERE course_id = 1 AND exam = 'final' WINDOW w AS (ORDER BY score DESC, student_id) ORDER BY score DESC, student_id

@@ -1,0 +1,32 @@
+id: ag-008
+title: Customers spending above average
+topic: aggregation
+tags:
+- subquery
+- nested-aggregation
+- avg
+difficulty: medium
+dataset: ecommerce
+prompt: |
+  Marketing wants a VIP list: every customer whose **total spend** (sum of `quantity * unit_price` over all their orders, any
+  status) is **higher than the average total spend per customer**. Only customers who ordered at least once take part in that average.
+
+  Return `customer_id` and `total_spend`, ordered by `total_spend` descending, then `customer_id`.
+solution_sql: |
+  WITH spend AS (
+    SELECT o.customer_id, sum(i.quantity * i.unit_price) AS total_spend
+    FROM orders o JOIN order_items i ON i.order_id = o.id
+    GROUP BY o.customer_id)
+  SELECT customer_id, total_spend
+  FROM spend
+  WHERE total_spend > (SELECT avg(total_spend) FROM spend)
+  ORDER BY total_spend DESC, customer_id
+compare:
+  order_matters: true
+hints:
+- First aggregate to one row per customer; only then average those rows.
+- 'What is the unit of the average you compare against: a line, an order or a customer?'
+trap: |
+  **Wrong grain.** The benchmark is the average *per customer*. Averaging the order lines (or the orders) gives a much smaller number (a line is worth a few hundred, a customer tens of thousands), so far too many customers - nearly everybody - count as "above average". Aggregate in two levels: per customer first, then the average of that.
+followup: |
+  "Do it in one pass without the CTE referenced twice." (Window: `avg(total_spend) OVER ()` on the per-customer rows, then filter in an outer query.)

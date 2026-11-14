@@ -1,0 +1,32 @@
+id: wf-020
+title: "Longest silence between two orders"
+topic: window-functions
+tags: [lag, date-difference, churn]
+difficulty: medium
+dataset: ecommerce
+prompt: |
+  Retention wants to know how long our customers can go quiet. For **customers 1 to 65**, find the longest gap in days between two
+  **consecutive non-cancelled** orders (ordered by `order_date`, then `id`; a cancelled order never happened, so it is not a stepping stone).
+  Customers with fewer than two non-cancelled orders are not listed.
+
+  Return `customer_id` and `max_gap_days`, ordered by `customer_id`.
+solution_sql: |
+  WITH g AS (
+    SELECT customer_id,
+           order_date - lag(order_date) OVER (PARTITION BY customer_id ORDER BY order_date, id) AS gap
+    FROM orders
+    WHERE status <> 'cancelled' AND customer_id <= 65
+  )
+  SELECT customer_id, max(gap) AS max_gap_days
+  FROM g
+  WHERE gap IS NOT NULL
+  GROUP BY customer_id
+  ORDER BY customer_id
+compare: {order_matters: true}
+hints:
+  - "Subtracting two dates gives an integer number of days."
+  - "A window function sees the rows that survive the WHERE of its own query block - so where should the status filter live?"
+trap: |
+  If you compute `LAG` over ALL orders and filter `status <> 'cancelled'` afterwards, the previous row can be a cancelled order, so the 'gap' is measured to an order that never happened: customer 1 (every second order of theirs is cancelled) gets a longest gap of 10 days instead of 21, and customers 31 and 61 are affected the same way. Filter first, then LAG.
+followup: |
+  "And the average gap per customer?" (`avg(gap)`.) "What if two orders are on the same day?" (Gap 0 - tie-break on `id` keeps the result deterministic.)

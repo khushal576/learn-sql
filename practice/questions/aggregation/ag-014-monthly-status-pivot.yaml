@@ -1,0 +1,33 @@
+id: ag-014
+title: Order status pivot per month 2023
+topic: aggregation
+tags:
+- pivot
+- filter
+- conditional-aggregation
+difficulty: hard
+dataset: ecommerce
+prompt: |
+  Operations wants one row per month of **2023** (by `order_date`) showing how orders ended up, as columns:
+  `delivered`, `returned`, `cancelled`, and `other` (everything else: placed and shipped). Each cell is a number of orders.
+
+  Return `month` (the first day of the month, a **date**), `delivered`, `returned`, `cancelled`, `other`, ordered by `month`.
+solution_sql: |
+  SELECT date_trunc('month', order_date)::date AS month,
+         count(*) FILTER (WHERE status = 'delivered') AS delivered,
+         count(*) FILTER (WHERE status = 'returned')  AS returned,
+         count(*) FILTER (WHERE status = 'cancelled') AS cancelled,
+         count(*) FILTER (WHERE status NOT IN ('delivered', 'returned', 'cancelled')) AS other
+  FROM orders
+  WHERE order_date >= '2023-01-01' AND order_date < '2024-01-01'
+  GROUP BY 1
+  ORDER BY 1
+compare:
+  order_matters: true
+hints:
+- One row per month, one aggregate per column - each with its own condition.
+- '`count(*) FILTER (WHERE status = ...)` or `sum(CASE WHEN ... THEN 1 ELSE 0 END)`.'
+trap: |
+  Typical misses: a missing bucket (`other` hard-coded as `status = 'placed'` loses every `shipped` order, so the four columns no longer add up to the month's orders), or `count(CASE WHEN status = 'x' THEN 1 ELSE 0 END)` - `COUNT` counts the 0s too, so every column equals the month's total. The check is that the four columns sum to `count(*)`.
+followup: |
+  "The statuses change every quarter - can the columns be dynamic?" (Not in plain SQL: a fixed column list is part of the query; build it in the application, or return long format `month, status, orders` and pivot in the BI tool.)

@@ -1,0 +1,41 @@
+id: wf-015
+title: First order, second order and the gap
+topic: window-functions
+tags: [row-number, lead, pivot, cte]
+difficulty: hard
+dataset: ecommerce
+prompt: |
+  Growth wants to know how fast customers place their **second** order. Among customers **85 to 100**, report only those with **at least two orders**
+  (some of these customers have never ordered at all and must not appear).
+  Return `customer_id`, `first_order_date`, `second_order_date` and `days_between` (second minus first, in days).
+  Orders are sequenced by `order_date`, then `id`. Order the result by `customer_id`.
+solution_sql: |
+  SELECT customer_id,
+         max(order_date) FILTER (WHERE rn = 1) AS first_order_date,
+         max(order_date) FILTER (WHERE rn = 2) AS second_order_date,
+         max(order_date) FILTER (WHERE rn = 2) - max(order_date) FILTER (WHERE rn = 1) AS days_between
+  FROM (
+    SELECT customer_id, order_date,
+           row_number() OVER (PARTITION BY customer_id ORDER BY order_date, id) AS rn
+    FROM orders
+    WHERE customer_id BETWEEN 85 AND 100
+  ) t
+  WHERE rn <= 2
+  GROUP BY customer_id
+  HAVING count(*) = 2
+  ORDER BY customer_id
+compare: {order_matters: true}
+hints:
+  - "Number each customer's orders, keep numbers 1 and 2, then put them on one row (conditional aggregation, or LEAD)."
+  - "Which customers can never have a second order?"
+trap: |
+  Starting from `customers` with a LEFT JOIN (to be 'safe') keeps the customers without any order as rows full of NULLs: 4 extra rows here (customers 91, 94, 97 and 100) that the report must not contain. The pairing is only meaningful for people who actually have a second order.
+followup: |
+  "Median days between consecutive orders per customer?" (LAG for the gap, then percentile_cont(0.5) WITHIN GROUP per customer.)
+alternatives:
+  - |
+    SELECT o1.customer_id, o1.order_date AS first_order_date, o2.order_date AS second_order_date, o2.order_date - o1.order_date AS days_between
+    FROM (SELECT customer_id, order_date, row_number() OVER (PARTITION BY customer_id ORDER BY order_date, id) AS rn FROM orders) o1
+    JOIN (SELECT customer_id, order_date, row_number() OVER (PARTITION BY customer_id ORDER BY order_date, id) AS rn FROM orders) o2
+      ON o2.customer_id = o1.customer_id AND o2.rn = 2
+    WHERE o1.rn = 1 AND o1.customer_id BETWEEN 85 AND 100 ORDER BY 1

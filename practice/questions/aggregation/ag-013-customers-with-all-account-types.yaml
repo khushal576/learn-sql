@@ -1,0 +1,30 @@
+id: ag-013
+title: Customers holding all three account types
+topic: aggregation
+tags:
+- having
+- count-distinct
+- where-vs-having
+difficulty: medium
+dataset: bank
+prompt: |
+  Product management wants the fully engaged customers: those who currently hold **all three account types** (checking, savings and
+  credit) among their **open** accounts. A closed account no longer counts.
+
+  Return `customer_id`, ordered by `customer_id`.
+solution_sql: |
+  SELECT customer_id
+  FROM accounts
+  WHERE status = 'open'
+  GROUP BY customer_id
+  HAVING count(DISTINCT type) = 3
+  ORDER BY customer_id
+compare:
+  order_matters: true
+hints:
+- Reduce the accounts to the open ones first, then check per customer how many different types are left.
+- '`count(DISTINCT type)` counts types, not accounts.'
+trap: |
+  Forgetting the status filter lets a **closed** account complete the set: 40 customers have all three types over all their accounts but only 37 still hold all three open. (`count(*) = 3` would be a different bug: it counts accounts, so two checking + one credit passes and a customer with a fourth account fails.)
+followup: |
+  "Customers with open accounts of *at least* two types, listing the types in one column?" (`HAVING count(DISTINCT type) >= 2` plus `string_agg(DISTINCT type, ', ')`.)

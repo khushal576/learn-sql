@@ -1,0 +1,27 @@
+id: jn-006
+title: Orders and value per customer
+topic: joins
+tags: [fan-out, count-distinct, group-by]
+difficulty: medium
+dataset: ecommerce
+prompt: |
+  For the **first 20 customers** (`id` 1 to 20), report how many **orders** each placed and the total **order value**
+  (the sum of `quantity * unit_price` over all their order lines).
+
+  Return `customer_id`, `orders` and `order_value`, ordered by `customer_id`.
+solution_sql: |
+  SELECT c.id AS customer_id, count(DISTINCT o.id) AS orders, sum(i.quantity * i.unit_price) AS order_value
+  FROM customers c
+  JOIN orders o ON o.customer_id = c.id
+  JOIN order_items i ON i.order_id = o.id
+  WHERE c.id <= 20
+  GROUP BY c.id
+  ORDER BY c.id
+compare: {order_matters: true}
+hints:
+  - "After joining order_items, one order becomes several rows — one per line."
+  - "What does COUNT(*) count now?"
+trap: |
+  **Fan-out.** Joining to the many side (`order_items`) repeats each order once per line, so `COUNT(*)` counts *lines*, not orders (and `COUNT(o.id)` does the same). You need `COUNT(DISTINCT o.id)` — or aggregate the lines in a subquery first. The sum is right only because each line is counted once.
+followup: |
+  "Add the number of payments per customer by joining `payments` too — what happens to the order value?" (It multiplies again: now fan-out hits the SUM. Pre-aggregate each child table separately — the next question.)

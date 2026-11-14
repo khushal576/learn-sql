@@ -1,0 +1,29 @@
+id: sq-014
+title: Top 10 customers by order count, ties included
+topic: subqueries
+tags: [correlated-subquery, top-n, ties, count]
+difficulty: hard
+dataset: ecommerce
+prompt: |
+  The loyalty team awards a gift to the **top 10 customers by number of orders** (all orders, any status). Customers **tied** for a place must all get it: a customer qualifies when **fewer than 10 customers have strictly more orders** than they do. You may not use window functions or `LIMIT`.
+
+  Return `customer_id`, `orders` (their order count), ordered by `customer_id`.
+solution_sql: |
+  WITH t AS (
+    SELECT customer_id, count(*) AS orders FROM orders GROUP BY customer_id
+  )
+  SELECT customer_id, orders
+  FROM t
+  WHERE (SELECT count(*) FROM t x WHERE x.orders > t.orders) < 10
+  ORDER BY customer_id
+compare: {order_matters: true}
+hints:
+  - "\"Fewer than 10 customers are strictly better\" - count them with a subquery that refers to the current row's count."
+  - "Strictly: `>`, not `>=`."
+trap: |
+  Here 20 customers tie at the top with 67 orders. `ORDER BY orders DESC LIMIT 10` keeps an arbitrary 10 of them and silently drops 10 equally deserving customers; counting with `>=` instead of `>` includes the customer themselves, so nobody has fewer than 10 at-or-above and the result is empty. 'Top N with ties' is *rank* semantics, not row-count semantics.
+followup: |
+  "Write it with a window function." (`rank() OVER (ORDER BY orders DESC) <= 10`; `dense_rank()` would give the top 10 distinct *values* instead.) "Does this correlated count scale?" (It is O(n^2) on the grouped set - fine for 540 customers, not for millions: use the window function.)
+alternatives:
+  - |
+    SELECT customer_id, orders FROM (SELECT customer_id, count(*) orders, rank() OVER (ORDER BY count(*) DESC) r FROM orders GROUP BY customer_id) t WHERE r <= 10 ORDER BY customer_id

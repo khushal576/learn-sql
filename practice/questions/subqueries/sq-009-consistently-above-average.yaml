@@ -1,0 +1,32 @@
+id: sq-009
+title: Students above the midterm average in every course
+topic: subqueries
+tags: [not-exists, correlated-subquery, vacuous-truth, avg]
+difficulty: medium
+dataset: school
+prompt: |
+  The school wants to praise students who were **always above the class**: their **midterm** (`exam = 'midterm'`) score is **strictly higher than the average midterm score of that course** in **every course where they sat a midterm**, and they sat **at least one** midterm. Look at **students 251 to 300** (`id`).
+
+  Return `student_id`, `name`, ordered by `student_id`.
+solution_sql: |
+  SELECT s.id AS student_id, s.name
+  FROM students s
+  WHERE s.id BETWEEN 251 AND 300
+    AND EXISTS (SELECT 1 FROM scores m WHERE m.student_id = s.id AND m.exam = 'midterm')
+    AND NOT EXISTS (SELECT 1 FROM scores m
+                    WHERE m.student_id = s.id AND m.exam = 'midterm'
+                      AND m.score <= (SELECT avg(a.score) FROM scores a
+                                      WHERE a.course_id = m.course_id AND a.exam = 'midterm'))
+  ORDER BY s.id
+compare: {order_matters: true}
+hints:
+  - "\"In every course\" = \"there is no course where they were at or below average\"."
+  - "The inner average is per course and only over midterms - a subquery inside the `NOT EXISTS`."
+  - "Not-at-or-below includes equal to the average."
+trap: |
+  A bare `NOT EXISTS` is vacuously true for students with no midterm at all - 10 of the students in 251-300 never sat one - so the query returns 13 rows instead of 3. The second slip is `<` instead of `<=`: someone exactly on the average is not *above* it.
+followup: |
+  "Do it without NOT EXISTS." (Join each midterm to its course average, then `GROUP BY student_id HAVING min(score - avg) > 0` - students with no midterm have no rows, so they vanish.) "Which is more readable?" (The aggregate form for 'always', `NOT EXISTS` when the exception itself is interesting.)
+alternatives:
+  - |
+    SELECT student_id, name FROM (SELECT s.id student_id, s.name, m.score, avg(m.score) OVER (PARTITION BY m.course_id) a FROM scores m JOIN students s ON s.id = m.student_id WHERE m.exam = 'midterm') t WHERE student_id BETWEEN 251 AND 300 GROUP BY student_id, name HAVING min(score - a) > 0 ORDER BY student_id

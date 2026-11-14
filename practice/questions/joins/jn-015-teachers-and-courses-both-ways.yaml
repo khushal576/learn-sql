@@ -1,0 +1,21 @@
+id: jn-015
+title: Reconcile teachers and courses
+topic: joins
+tags: [full-join, reconciliation]
+difficulty: hard
+dataset: school
+prompt: |
+  The timetable office needs a **reconciliation list**: every **teacher with each of their courses**, plus the
+  teachers who have **no course** (course shown empty) and the courses that have **no teacher** (teacher shown empty).
+
+  Return `teacher` (the name) and `course` (the title). Order does not matter.
+solution_sql: |
+  SELECT t.name AS teacher, c.title AS course
+  FROM teachers t FULL JOIN courses c ON c.teacher_id = t.id
+compare: {order_matters: false}
+hints:
+  - "You need unmatched rows from BOTH sides."
+trap: |
+  A `LEFT JOIN` from teachers keeps the teachers without courses but loses the two **unassigned courses**; the mirror-image `RIGHT JOIN` loses the idle teachers. Only a **FULL JOIN** keeps both — the tool for "what is in A but not B and what is in B but not A" reconciliations.
+followup: |
+  "Show only the mismatches (the rows that are in one table but not the other)." (`WHERE t.id IS NULL OR c.id IS NULL` — on the *key* columns, not on a column that can be NULL anyway.)

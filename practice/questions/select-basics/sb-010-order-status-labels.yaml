@@ -1,0 +1,33 @@
+id: sb-010
+title: Operations dashboard — label each order
+topic: select-basics
+tags: [case, "null", branch-order]
+difficulty: hard
+dataset: ecommerce
+prompt: |
+  The operations dashboard labels the orders of the **first 10 days of January 2023** (`order_date` from 2023-01-01
+  to 2023-01-10). Rules, in this business priority:
+
+  - status is `cancelled` → **Cancelled**
+  - otherwise, no `shipped_date` yet → **Open**
+  - otherwise, shipped **more than 3 days** after `order_date` → **Late**
+  - otherwise → **On time**
+
+  Return `id`, `status` and `label`, ordered by `id`.
+solution_sql: |
+  SELECT id, status,
+         CASE WHEN status = 'cancelled' THEN 'Cancelled'
+              WHEN shipped_date IS NULL THEN 'Open'
+              WHEN shipped_date - order_date > 3 THEN 'Late'
+              ELSE 'On time' END AS label
+  FROM orders
+  WHERE order_date >= DATE '2023-01-01' AND order_date <= DATE '2023-01-10'
+  ORDER BY id
+compare: {order_matters: true}
+hints:
+  - "Cancelled orders also have no shipped_date. Which branch should see them first?"
+  - "Subtracting two dates gives a number of days."
+trap: |
+  Branch order. Cancelled orders have `shipped_date IS NULL` too, so if the 'Open' branch comes first they are mislabelled **Open** (4 of the orders here). A `CASE` returns on the first true branch — the order of the WHENs *is* the business logic.
+followup: |
+  "Where would `shipped_date - order_date > 3` go wrong?" (If shipped_date were a timestamp the subtraction gives an interval, not a number — know your column types.) "Count the orders per label." (Wrap this in a CTE, then GROUP BY label.)

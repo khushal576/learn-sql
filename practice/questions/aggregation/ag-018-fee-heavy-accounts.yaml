@@ -1,0 +1,31 @@
+id: ag-018
+title: Accounts where fees eat the deposits
+topic: aggregation
+tags:
+- having
+- conditional-aggregation
+- signed-amounts
+difficulty: hard
+dataset: bank
+prompt: |
+  Customer care wants to call accounts where the **fees paid exceed 1 % of the total deposits**. In `transactions`, rows with
+  `kind = 'fee'` are fees (stored as negative amounts) and rows with `kind = 'deposit'` are deposits (positive). Use every date.
+
+  Return `account_id`, `fees` (the total fees as a **positive** number) and `deposits` (the total deposits), ordered by `account_id`.
+solution_sql: |
+  SELECT account_id,
+         -sum(amount) FILTER (WHERE kind = 'fee')   AS fees,
+         sum(amount) FILTER (WHERE kind = 'deposit') AS deposits
+  FROM transactions
+  GROUP BY account_id
+  HAVING -sum(amount) FILTER (WHERE kind = 'fee') > 0.01 * sum(amount) FILTER (WHERE kind = 'deposit')
+  ORDER BY account_id
+compare:
+  order_matters: true
+hints:
+- Both conditions are aggregates over the same account rows - no WHERE can separate them.
+- HAVING may compare two aggregates with each other.
+trap: |
+  **The sign.** Fees are negative in the table, so `sum(fee) > 0.01 * sum(deposit)` compares a negative number with a positive one and is never true - the query returns nothing (instead of the 7 accounts). The fee total must be negated (or compared as `-fees`). Filtering `WHERE kind IN ('fee','deposit')` is fine, but then both conditional sums still have to live in `HAVING`.
+followup: |
+  "Include accounts that paid fees but never made a deposit." (Their deposit sum is NULL and the comparison is NULL; use `coalesce(..., 0)` so fees > 0 passes.)

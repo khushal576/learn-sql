@@ -1,0 +1,26 @@
+id: wf-019
+title: "Every order next to the latest order status"
+topic: window-functions
+tags: [last-value, frame, unbounded-following]
+difficulty: medium
+dataset: ecommerce
+prompt: |
+  Support is building a screen for customers **1 to 5**: next to each of the customer's orders it must show the **status of that customer's
+  most recent order** (latest `order_date`; if two share a date, the higher `id` is more recent).
+
+  Return `customer_id`, `order_id`, `order_date`, `status` and `latest_status`, ordered by `customer_id`, `order_date`, `order_id`.
+solution_sql: |
+  SELECT customer_id, id AS order_id, order_date, status,
+         last_value(status) OVER (PARTITION BY customer_id ORDER BY order_date, id
+                                  ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS latest_status
+  FROM orders
+  WHERE customer_id <= 5
+  ORDER BY customer_id, order_date, id
+compare: {order_matters: true}
+hints:
+  - "`LAST_VALUE` returns the last row of the *frame*, not of the partition. What is the default frame when there is an ORDER BY?"
+  - "Alternatively order descending and use FIRST_VALUE."
+trap: |
+  With an ORDER BY the default frame ends at the CURRENT ROW, so plain `last_value(status) OVER (PARTITION BY ... ORDER BY ...)` just returns the current row's own status - 33 of the 165 rows come out wrong and nothing errors. Widen the frame to `ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING`, or flip the order and use `first_value`.
+followup: |
+  "Why does the same trap not hurt `FIRST_VALUE`?" (The frame always starts at the partition start, so the first row is inside it.) "Which customers' latest order is cancelled?" 

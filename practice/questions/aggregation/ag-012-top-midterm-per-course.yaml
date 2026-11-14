@@ -1,0 +1,29 @@
+id: ag-012
+title: Best midterm per course, ties kept
+topic: aggregation
+tags:
+- max
+- ties
+- correlated-subquery
+difficulty: medium
+dataset: school
+prompt: |
+  The school wants to congratulate the best performers: for every course, the students who reached the **highest midterm score**
+  (`exam = 'midterm'`) in that course. If several students share the top score, **all of them** are listed.
+
+  Return `course_id`, `student_id` and `score`, ordered by `course_id`, then `student_id`.
+solution_sql: |
+  SELECT s.course_id, s.student_id, s.score
+  FROM scores s
+  WHERE s.exam = 'midterm'
+    AND s.score = (SELECT max(m.score) FROM scores m WHERE m.exam = 'midterm' AND m.course_id = s.course_id)
+  ORDER BY s.course_id, s.student_id
+compare:
+  order_matters: true
+hints:
+- MAX gives you the number, not the people - how do you get back to the rows that have that number?
+- Compare each row with the maximum of its own course.
+trap: |
+  `GROUP BY course_id` with `MAX(score)` loses the student (you cannot select `student_id` next to it), and the shortcuts that do return a student - `DISTINCT ON`, `ORDER BY score DESC LIMIT 1`, `row_number() = 1` - keep exactly one row per course and silently drop co-winners (course 13 has two students on 100). Match the rows against the per-course maximum instead (correlated subquery, join to the aggregate, or `rank() = 1`).
+followup: |
+  "Do it with a window function." (`rank() OVER (PARTITION BY course_id ORDER BY score DESC) = 1` - `rank`, not `row_number`, keeps ties.)

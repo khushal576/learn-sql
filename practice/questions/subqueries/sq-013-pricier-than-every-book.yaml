@@ -1,0 +1,26 @@
+id: sq-013
+title: Priced above the whole Books category
+topic: subqueries
+tags: [all, subquery, any]
+difficulty: hard
+dataset: ecommerce
+prompt: |
+  Pricing is checking the premium range: list every product whose price is **higher than the price of every product in the `'Books'` category** (category name `Books`, i.e. above the most expensive book).
+
+  Return `id`, `name`, `price`, ordered by `price` descending, then `id`.
+solution_sql: |
+  SELECT id, name, price
+  FROM products
+  WHERE price > ALL (SELECT p.price FROM products p JOIN categories c ON c.id = p.category_id WHERE c.name = 'Books')
+  ORDER BY price DESC, id
+compare: {order_matters: true}
+hints:
+  - "\"Higher than every\" has its own operator for a subquery that returns several rows."
+  - "Which comparison would instead mean \"higher than at least one\"?"
+trap: |
+  `> ANY` (a.k.a. `SOME`) means higher than **at least one** book - i.e. above the *cheapest* book - and returns 115 products instead of the 13 that beat the most expensive book. People read "any" as "every" in English; in SQL `ANY` is an OR over the subquery rows, `ALL` is an AND.
+followup: |
+  "What if the Books category were empty?" (`> ALL` over an empty set is **true** for every row; `> ANY` is false.) "What if one book price were NULL?" (`> ALL` can never be true then - the comparison with NULL is unknown. `> (SELECT max(price) ...)` ignores the NULL, so the two forms differ.)
+alternatives:
+  - |
+    SELECT id, name, price FROM products WHERE price > (SELECT max(p.price) FROM products p JOIN categories c ON c.id = p.category_id WHERE c.name = 'Books') ORDER BY price DESC, id

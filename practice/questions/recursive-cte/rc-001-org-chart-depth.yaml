@@ -1,0 +1,23 @@
+id: rc-001
+title: Everyone under VP 3, with their depth
+topic: recursive-cte
+tags: [recursive, hierarchy, org-chart]
+difficulty: hard
+dataset: hr
+prompt: |
+  Starting from the employee with **id 3** (a VP), return every person who reports to them directly or
+  indirectly. Output `id`, `name` and `depth` (direct reports = 1, their reports = 2, …).
+solution_sql: |
+  WITH RECURSIVE tree AS (
+    SELECT id, name, 1 AS depth FROM employees WHERE manager_id = 3
+    UNION ALL
+    SELECT e.id, e.name, t.depth + 1 FROM employees e JOIN tree t ON e.manager_id = t.id
+  )
+  SELECT id, name, depth FROM tree
+compare: {order_matters: false}
+hints:
+  - "WITH RECURSIVE: an anchor (direct reports) UNION ALL a step that joins back to the CTE."
+trap: |
+  Forgetting that the anchor must NOT include VP 3 himself (the question asks for people *under* him), and that UNION ALL (not UNION) is the right choice — UNION would add a costly de-dup on every iteration. In real data a cycle (A manages B manages A) makes the query run forever: guard with a depth limit or a visited-path array.
+followup: |
+  "Add the full management path as text, e.g. 'Mei > Ravi > Zara'." (carry an array or string through the recursion.)

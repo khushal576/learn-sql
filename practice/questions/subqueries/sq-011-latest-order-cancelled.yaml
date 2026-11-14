@@ -1,0 +1,30 @@
+id: sq-011
+title: Customers whose last order was cancelled
+topic: subqueries
+tags: [correlated-subquery, top-1-per-group, ties]
+difficulty: hard
+dataset: ecommerce
+prompt: |
+  Retention wants to call customers whose **most recent order is `'cancelled'`** - they tried again last time and it failed. The most recent order is the one with the **latest `order_date`**; if two orders share a date, the one with the **higher `id`**. Look at **customers 1 to 200** (`id`).
+
+  Return `customer_id`, ordered by `customer_id`.
+solution_sql: |
+  SELECT c.id AS customer_id
+  FROM customers c
+  WHERE c.id <= 200
+    AND (SELECT o.status FROM orders o
+         WHERE o.customer_id = c.id
+         ORDER BY o.order_date DESC, o.id DESC
+         LIMIT 1) = 'cancelled'
+  ORDER BY c.id
+compare: {order_matters: true}
+hints:
+  - "First find the one latest order per customer; only then look at its status."
+  - "A scalar subquery can use `ORDER BY ... LIMIT 1`."
+trap: |
+  Filtering `status = 'cancelled'` first and then taking the latest returns the latest **cancelled** order - so anyone who ever cancelled something matches (9 customers instead of 8), even if their last order was delivered. The status test must be applied to the row that wins the "latest" competition, not before it.
+followup: |
+  "Do it with a window function." (`row_number() OVER (PARTITION BY customer_id ORDER BY order_date DESC, id DESC) = 1` in a derived table, then filter the status.) "Why the `id` tie-breaker?" (Two orders on the same day make 'latest' ambiguous - the answer would flip between runs.)
+alternatives:
+  - |
+    SELECT customer_id FROM (SELECT customer_id, status, row_number() OVER (PARTITION BY customer_id ORDER BY order_date DESC, id DESC) rn FROM orders WHERE customer_id <= 200) t WHERE rn = 1 AND status = 'cancelled' ORDER BY customer_id

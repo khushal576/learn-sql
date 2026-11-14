@@ -1,0 +1,30 @@
+id: wf-002
+title: Number each customer's orders
+topic: window-functions
+tags: [row-number, partition-by]
+difficulty: easy
+dataset: ecommerce
+prompt: |
+  The CRM team wants to label every order with its position in the customer's own history: the 1st order, the 2nd, the 3rd...
+  For customers **1 to 3**, return `customer_id`, `order_id` and `order_no` (1 = the customer's earliest order).
+  If two orders of a customer share a date, the lower `id` comes first.
+  Order the result by `customer_id`, then `order_no`.
+solution_sql: |
+  SELECT customer_id, id AS order_id,
+         row_number() OVER (PARTITION BY customer_id ORDER BY order_date, id) AS order_no
+  FROM orders
+  WHERE customer_id <= 3
+  ORDER BY customer_id, order_no
+compare: {order_matters: true}
+hints:
+  - "You want the counter to restart for every customer. Which clause of OVER does that?"
+  - "ROW_NUMBER needs an ORDER BY inside OVER to know what 'first' means."
+trap: |
+  Without `PARTITION BY customer_id` the numbers run 1, 2, 3... across all the filtered rows, so customer 2's first order gets a number like 15. PARTITION BY is what restarts the counter per group.
+followup: |
+  "Now keep only each customer's first order." (Wrap in a subquery and filter order_no = 1: a window function cannot be used in WHERE.)
+alternatives:
+  - |
+    SELECT o.customer_id, o.id AS order_id,
+           (SELECT count(*) FROM orders p WHERE p.customer_id = o.customer_id AND (p.order_date, p.id) <= (o.order_date, o.id)) AS order_no
+    FROM orders o WHERE o.customer_id <= 3 ORDER BY 1, 3

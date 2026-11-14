@@ -1,0 +1,30 @@
+id: wf-031
+title: Top 3 products by revenue in each category
+topic: window-functions
+tags: [rank, top-n-per-group, cte]
+difficulty: hard
+dataset: ecommerce
+prompt: |
+  For each **category name**, return its 3 products with the highest revenue
+  (`sum(quantity * unit_price)` over all order lines, any order status).
+  Output `category`, `product`, `revenue`, `rnk`. Use **RANK** so ties share a rank and are all kept
+  when they fall within the top 3.
+solution_sql: |
+  WITH rev AS (
+    SELECT c.name AS category, p.name AS product, sum(i.quantity * i.unit_price) AS revenue
+    FROM order_items i JOIN products p ON p.id = i.product_id JOIN categories c ON c.id = p.category_id
+    GROUP BY c.name, p.name
+  ), ranked AS (
+    SELECT *, rank() OVER (PARTITION BY category ORDER BY revenue DESC) AS rnk FROM rev
+  )
+  SELECT category, product, revenue, rnk FROM ranked WHERE rnk <= 3
+compare: {order_matters: false}
+hints:
+  - "Aggregate first, then rank the aggregated rows."
+  - "You cannot filter on a window function in WHERE — wrap it in a CTE or subquery."
+trap: |
+  ROW_NUMBER() silently drops tied products at the cut-off; RANK() keeps all ties (so you can get more than 3 rows per category); DENSE_RANK() changes what "top 3" means. The question asks for RANK on purpose — say that out loud in an interview.
+followup: |
+  "Now only the single best product per category, but if there is a tie return all tied products." (RANK = 1.) "And what if the table had 500 million order lines?" (Pre-aggregate; window functions run after GROUP BY.)
+alternatives:
+  - "Use a LATERAL join: SELECT … FROM categories c CROSS JOIN LATERAL (SELECT … ORDER BY revenue DESC FETCH FIRST 3 ROWS WITH TIES) t"

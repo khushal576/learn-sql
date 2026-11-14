@@ -1,0 +1,26 @@
+id: sq-002
+title: Paid more than their own department
+topic: subqueries
+tags: [correlated-subquery, avg]
+difficulty: easy
+dataset: hr
+prompt: |
+  HR is preparing a pay-equity review and needs the people who earn **more than the average salary of their own department**.
+
+  Return `id`, `name`, `dept_id`, `salary`, ordered by `id`.
+solution_sql: |
+  SELECT e.id, e.name, e.dept_id, e.salary
+  FROM employees e
+  WHERE e.salary > (SELECT avg(x.salary) FROM employees x WHERE x.dept_id = e.dept_id)
+  ORDER BY e.id
+compare: {order_matters: true}
+hints:
+  - "The average to compare with is different for every employee - the subquery must know the outer row's department."
+  - "Give the inner table another alias so you can write `x.dept_id = e.dept_id`."
+trap: |
+  Comparing with the company-wide average (`> (SELECT avg(salary) FROM employees)`) is the classic shortcut: it returns 102 people instead of the 99 who beat their own department. Departments with high pay make everyone in them look overpaid, and low-paying ones hide their best earners. The subquery must be **correlated** with `dept_id`.
+followup: |
+  "A correlated subquery runs once per outer row - can you avoid that?" (Yes: join to a derived table `SELECT dept_id, avg(salary) ... GROUP BY dept_id`, or use `avg(salary) OVER (PARTITION BY dept_id)`; the planner can often decorrelate it anyway.)
+alternatives:
+  - |
+    SELECT e.id, e.name, e.dept_id, e.salary FROM employees e JOIN (SELECT dept_id, avg(salary) a FROM employees GROUP BY dept_id) d ON d.dept_id = e.dept_id WHERE e.salary > d.a ORDER BY e.id

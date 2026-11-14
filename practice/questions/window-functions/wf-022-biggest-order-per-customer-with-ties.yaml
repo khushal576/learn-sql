@@ -1,0 +1,30 @@
+id: wf-022
+title: "Each customer's biggest order, ties kept"
+topic: window-functions
+tags: [rank, ties, top-n-per-group]
+difficulty: medium
+dataset: ecommerce
+prompt: |
+  Marketing wants to know what the **largest basket** of our first customers (**ids 1 to 10**) looked like. Order value =
+  `sum(quantity * unit_price)` of the order's lines; ignore cancelled orders.
+
+  For each customer return their highest-value order. If several orders share that top value, return **all** of them.
+  Output `customer_id`, `order_id`, `order_value`, ordered by `customer_id`, `order_id`.
+solution_sql: |
+  WITH v AS (
+    SELECT o.customer_id, o.id AS order_id, sum(i.quantity * i.unit_price) AS order_value
+    FROM orders o JOIN order_items i ON i.order_id = o.id
+    WHERE o.status <> 'cancelled' AND o.customer_id <= 10
+    GROUP BY o.customer_id, o.id
+  ), r AS (
+    SELECT *, rank() OVER (PARTITION BY customer_id ORDER BY order_value DESC) AS rk FROM v
+  )
+  SELECT customer_id, order_id, order_value FROM r WHERE rk = 1 ORDER BY customer_id, order_id
+compare: {order_matters: true}
+hints:
+  - "Aggregate to one row per order first, then rank inside each customer."
+  - "Which ranking function keeps tied rows together?"
+trap: |
+  `ROW_NUMBER() = 1` (or `LIMIT 1` per customer) silently keeps one of the tied orders and drops the others - customers 1, 4, 7 and 10 have three orders sharing their top value, so 8 rows go missing. `RANK() = 1` (or `DENSE_RANK`) keeps every tie.
+followup: |
+  "Return only one order per customer, the earliest of the tied ones." (`ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY order_value DESC, order_date, id)`.) "Same in one pass without a window?" (`FETCH FIRST 1 ROW WITH TIES` in a LATERAL.)

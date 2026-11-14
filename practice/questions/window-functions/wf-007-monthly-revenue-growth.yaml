@@ -1,0 +1,41 @@
+id: wf-007
+title: Month-over-month revenue growth
+topic: window-functions
+tags: [lag, growth, cte]
+difficulty: medium
+dataset: ecommerce
+prompt: |
+  Finance wants a month-over-month growth report on **delivered** orders only. Revenue of a month = `sum(quantity * unit_price)`
+  over the order lines of delivered orders placed in that month (by `order_date`).
+  Return `month` (the first day of the month, as a date), `revenue`, `prev_revenue` (the previous month's revenue, NULL for the first month)
+  and `growth_pct` = `(revenue - prev_revenue) / prev_revenue * 100` rounded to **1 decimal** (NULL for the first month).
+  Order by `month`.
+solution_sql: |
+  WITH m AS (
+    SELECT date_trunc('month', o.order_date)::date AS month, sum(i.quantity * i.unit_price) AS revenue
+    FROM orders o JOIN order_items i ON i.order_id = o.id
+    WHERE o.status = 'delivered'
+    GROUP BY 1
+  )
+  SELECT month, revenue,
+         lag(revenue) OVER (ORDER BY month) AS prev_revenue,
+         round((revenue - lag(revenue) OVER (ORDER BY month)) * 100.0 / lag(revenue) OVER (ORDER BY month), 1) AS growth_pct
+  FROM m
+  ORDER BY month
+compare: {order_matters: true, decimals: 1}
+hints:
+  - "Aggregate to one row per month first (a CTE), then apply LAG over the months."
+  - "The base of a growth rate is the OLD value."
+trap: |
+  Dividing by the **current** month's revenue instead of the previous one (`(rev - prev) / rev`) is the classic slip: it produces plausible-looking but wrong percentages (and can never exceed 100). Growth is always relative to the starting point, `prev_revenue`.
+followup: |
+  "What if a month had no delivered orders at all?" (It would be missing from the grouped result, so LAG would pick the month before the gap; generate the calendar with generate_series and LEFT JOIN to fix it.)
+alternatives:
+  - |
+    WITH m AS (
+      SELECT date_trunc('month', o.order_date)::date AS month, sum(i.quantity * i.unit_price) AS revenue
+      FROM orders o JOIN order_items i ON i.order_id = o.id WHERE o.status = 'delivered' GROUP BY 1)
+    SELECT c.month, c.revenue, p.revenue AS prev_revenue,
+           round((c.revenue - p.revenue) * 100.0 / p.revenue, 1) AS growth_pct
+    FROM m c LEFT JOIN m p ON p.month = (c.month - interval '1 month')::date
+    ORDER BY c.month

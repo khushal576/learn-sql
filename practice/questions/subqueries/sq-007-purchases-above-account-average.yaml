@@ -1,0 +1,28 @@
+id: sq-007
+title: Purchases above the account's own habit
+topic: subqueries
+tags: [correlated-subquery, avg, abs]
+difficulty: medium
+dataset: bank
+prompt: |
+  Card security wants to see **purchases that are unusually large for the account that made them**: a transaction with `kind = 'purchase'` whose size is **greater than the average purchase size of the same account**. Purchase amounts are stored negative - compare the **absolute** values. Look at **accounts 1 to 20**.
+
+  Return `id` (the transaction id), `account_id`, `spend` (the positive purchase size), ordered by `id`.
+solution_sql: |
+  SELECT t.id, t.account_id, -t.amount AS spend
+  FROM transactions t
+  WHERE t.kind = 'purchase' AND t.account_id <= 20
+    AND -t.amount > (SELECT avg(-x.amount) FROM transactions x
+                     WHERE x.account_id = t.account_id AND x.kind = 'purchase')
+  ORDER BY t.id
+compare: {order_matters: true}
+hints:
+  - "Average of what, exactly - all transactions of the account, or only some of them?"
+  - "The negative sign: pick a convention and apply it on both sides of the comparison."
+trap: |
+  Using one overall average purchase (about 98) ignores that accounts differ a lot - some accounts average 57, others 141 - so the small spender's usual purchases are never flagged and the big spender's are all flagged. The subquery must be correlated on `account_id` **and** filter on `kind = 'purchase'` (otherwise deposits and fees pollute the average).
+followup: |
+  "The account's average includes the purchase being tested - does that matter?" (Slightly: you compare with an average that contains the row itself; for a stricter test compare to the average of the *other* purchases.) "Write it with a window function." (`avg(-amount) OVER (PARTITION BY account_id)` in a derived table filtered to purchases.)
+alternatives:
+  - |
+    SELECT id, account_id, spend FROM (SELECT id, account_id, -amount spend, avg(-amount) OVER (PARTITION BY account_id) a FROM transactions WHERE kind = 'purchase') t WHERE account_id <= 20 AND spend > a ORDER BY id

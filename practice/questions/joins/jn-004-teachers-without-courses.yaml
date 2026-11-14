@@ -1,0 +1,23 @@
+id: jn-004
+title: Teachers who teach nothing
+topic: joins
+tags: [anti-join, not-in, "null"]
+difficulty: easy
+dataset: school
+prompt: |
+  The principal wants to know which **teachers have no course** at all this year.
+
+  Return `id` and `name`, ordered by `id`.
+solution_sql: |
+  SELECT t.id, t.name FROM teachers t
+  WHERE NOT EXISTS (SELECT 1 FROM courses c WHERE c.teacher_id = t.id)
+  ORDER BY t.id
+compare: {order_matters: true}
+hints:
+  - "There are courses with no teacher — what does their teacher_id contain?"
+trap: |
+  `WHERE id NOT IN (SELECT teacher_id FROM courses)` returns **no rows at all**: two courses have a NULL `teacher_id`, and `id NOT IN (…, NULL)` can never be true (it is "unknown"). `NOT EXISTS` and `LEFT JOIN … WHERE c.id IS NULL` are NULL-safe. This is the most-asked SQL gotcha in interviews.
+followup: |
+  "Fix the NOT IN version without switching to NOT EXISTS." (`NOT IN (SELECT teacher_id FROM courses WHERE teacher_id IS NOT NULL)`.) "Why does `IN` not have this problem?" (`x IN (…, NULL)` can still be true via another element; only NOT turns the NULL into a blocker.)
+alternatives:
+  - "SELECT t.id, t.name FROM teachers t LEFT JOIN courses c ON c.teacher_id = t.id WHERE c.id IS NULL ORDER BY t.id"

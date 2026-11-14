@@ -1,0 +1,30 @@
+id: sq-015
+title: Grade-12 students beating their grade
+topic: subqueries
+tags: [derived-table, avg, join, group-by]
+difficulty: hard
+dataset: school
+prompt: |
+  The school board wants the **grade-12 students whose average score (over all of their score rows, midterms and finals) is higher than the average score of all score rows of their grade** (here: grade 12). Students with no scores have no average and are skipped.
+
+  Return `student_id`, `name`, `avg_score` (the student's average, rounded to 2 decimals), ordered by `student_id`.
+solution_sql: |
+  SELECT s.id AS student_id, s.name, round(a.avg_score, 2) AS avg_score
+  FROM students s
+  JOIN (SELECT student_id, avg(score) AS avg_score FROM scores GROUP BY student_id) a ON a.student_id = s.id
+  JOIN (SELECT st.grade, avg(sc.score) AS grade_avg
+        FROM scores sc JOIN students st ON st.id = sc.student_id
+        GROUP BY st.grade) g ON g.grade = s.grade
+  WHERE s.grade = 12 AND a.avg_score > g.grade_avg
+  ORDER BY s.id
+compare: {order_matters: true}
+hints:
+  - "Two different averages are needed: one per student, one per grade - each can be a derived table."
+  - "The grade average is over score rows, so join `scores` to `students` to know the grade."
+trap: |
+  Comparing a student's **single scores** with the grade average (`WHERE score > grade_avg` with a `DISTINCT`) answers "did they ever beat the grade average on one exam?" - 72 students qualify, i.e. practically all of grade 12, instead of the 39 whose *average* is above it. Aggregate first (one row per student), compare after.
+followup: |
+  "Why not avg of the student averages for the grade?" (Different weights: a student with 12 scores counts 12 times in the all-rows average but once in the average of averages; state which one is meant.) "Use a window function." (`avg(avg(score)) OVER` is the average of averages - to get all-rows average compute `sum(score) OVER / count(*) OVER` on the score rows.)
+alternatives:
+  - |
+    SELECT s.id AS student_id, s.name, round(x.a, 2) AS avg_score FROM students s JOIN (SELECT student_id, avg(score) a FROM scores GROUP BY student_id) x ON x.student_id = s.id WHERE s.grade = 12 AND x.a > (SELECT avg(sc.score) FROM scores sc JOIN students st ON st.id = sc.student_id WHERE st.grade = s.grade) ORDER BY s.id

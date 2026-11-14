@@ -1,0 +1,23 @@
+id: sb-012
+title: The 5 most recent orders — fairly
+topic: select-basics
+tags: [limit, ties, fetch-first]
+difficulty: hard
+dataset: ecommerce
+prompt: |
+  An auditor wants a sample: the **5 most recent orders** by `order_date`. It would be unfair to cut through a day, so if
+  several orders share the date of the 5th one, **include all of them**.
+
+  Return `id`, `customer_id` and `order_date`.
+solution_sql: |
+  SELECT id, customer_id, order_date FROM orders ORDER BY order_date DESC FETCH FIRST 5 ROWS WITH TIES
+compare: {order_matters: false}
+hints:
+  - "`LIMIT 5` returns exactly 5 rows. Is there a standard SQL clause that keeps ties?"
+  - "Alternatively: find the 5th highest date first, then select everything on or after it."
+trap: |
+  `ORDER BY order_date DESC LIMIT 5` returns exactly 5 rows and chooses **arbitrarily** among the orders tied on the cut-off date — another run, another answer. `FETCH FIRST 5 ROWS WITH TIES` (Postgres 13+) or `RANK() … <= 5` keeps every tied row (9 rows here).
+followup: |
+  "Add `, id` to the ORDER BY and `WITH TIES` stops tying — why?" (Ties are decided on ALL the ORDER BY columns; the extra column makes every row unique.) "Do the same with a window function." (`RANK() OVER (ORDER BY order_date DESC) <= 5`.)
+alternatives:
+  - "SELECT id, customer_id, order_date FROM (SELECT *, rank() OVER (ORDER BY order_date DESC) AS rk FROM orders) t WHERE rk <= 5"

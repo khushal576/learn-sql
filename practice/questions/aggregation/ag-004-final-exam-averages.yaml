@@ -1,0 +1,30 @@
+id: ag-004
+title: Course final-exam averages
+topic: aggregation
+tags:
+- having
+- where-vs-having
+- avg
+difficulty: easy
+dataset: school
+prompt: |
+  The head of studies only trusts averages that rest on enough data. For every course with **at least 20 final-exam scores**
+  (`exam = 'final'`), report how many finals were taken and the average final score **rounded to 2 decimals**.
+
+  Return `course_id`, `finals` and `avg_final`, ordered by `course_id`.
+solution_sql: |
+  SELECT course_id, count(*) AS finals, round(avg(score), 2) AS avg_final
+  FROM scores
+  WHERE exam = 'final'
+  GROUP BY course_id
+  HAVING count(*) >= 20
+  ORDER BY course_id
+compare:
+  order_matters: true
+hints:
+- Which rows are exam rows you want at all (WHERE) and which groups are big enough (HAVING)?
+- A condition on count(*) cannot go in WHERE - WHERE runs before the groups exist.
+trap: |
+  `WHERE` filters rows *before* grouping, `HAVING` filters groups *after*. The exam type belongs in `WHERE` (otherwise midterms are counted too and small courses suddenly reach 20 scores, with the wrong average); the size threshold belongs in `HAVING`.
+followup: |
+  "Why can't you write `HAVING avg_final > 65`?" (HAVING runs before the SELECT list, so the alias does not exist yet - repeat the expression.)

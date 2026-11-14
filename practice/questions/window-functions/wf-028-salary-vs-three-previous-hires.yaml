@@ -1,0 +1,34 @@
+id: wf-028
+title: "Salary versus the three hires before"
+topic: window-functions
+tags: [frame, rows-between, avg-over]
+difficulty: hard
+dataset: hr
+prompt: |
+  Compensation wants to compare newer hires with the people who joined just before them. Line up **all employees company-wide** by
+  `hire_date`, then `id`. For every employee hired on or after **2020-01-01**, compute `prev3_avg`: the average salary of the **three
+  employees hired immediately before them** in that line (not including themselves), rounded to 2 decimals. Only rows that actually have three
+  predecessors qualify (here all of them do).
+
+  Return `id`, `salary`, `prev3_avg`, `diff` (`salary - prev3_avg`, 2 decimals), ordered by `hire_date`, `id`.
+  Mind that the 2020+ filter must not reduce the pool of predecessors.
+solution_sql: |
+  WITH x AS (
+    SELECT id, hire_date, salary,
+           count(*) OVER w AS n,
+           round(avg(salary) OVER w, 2) AS prev3_avg
+    FROM employees
+    WINDOW w AS (ORDER BY hire_date, id ROWS BETWEEN 3 PRECEDING AND 1 PRECEDING)
+  )
+  SELECT id, salary, prev3_avg, round(salary - prev3_avg, 2) AS diff
+  FROM x
+  WHERE hire_date >= '2020-01-01' AND n = 3
+  ORDER BY hire_date, id
+compare: {order_matters: true}
+hints:
+  - "The frame must stop one row before the current row."
+  - "Filter on hire_date AFTER computing the window, otherwise the early 2020 hires would have no predecessors."
+trap: |
+  Three mistakes the data punishes: `ROWS BETWEEN 3 PRECEDING AND CURRENT ROW` includes the employee in their own comparison (an average of 4 people, every `prev3_avg` is off); `... 2 PRECEDING AND CURRENT ROW` is not three predecessors either; and putting `WHERE hire_date >= '2020-01-01'` inside the window's query block removes the 2019 employees, so the first 2020 hires have too few (or wrong) predecessors.
+followup: |
+  "Do the same, but average the previous three **in the same department**." (`PARTITION BY dept_id`, and now the `n = 3` guard really filters rows.) "Does `ROWS` vs `RANGE` matter here?" (Not here - `hire_date` is unique - but with ties RANGE would pull the peers in.)

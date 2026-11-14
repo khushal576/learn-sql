@@ -1,0 +1,27 @@
+id: sq-001
+title: Premium products vs the catalogue average
+topic: subqueries
+tags: [scalar-subquery, avg]
+difficulty: easy
+dataset: ecommerce
+prompt: |
+  Merchandising wants the **premium shelf**: every **active** product (`active = true`) priced **above the average price of the active products**. Inactive products are not for sale, so they must not influence the average either.
+
+  Return `id`, `name`, `price`, ordered by `price` descending, then `id`.
+solution_sql: |
+  SELECT id, name, price
+  FROM products
+  WHERE active
+    AND price > (SELECT avg(price) FROM products WHERE active)
+  ORDER BY price DESC, id
+compare: {order_matters: true}
+hints:
+  - "The average is one number: a scalar subquery can sit on the right side of `>`."
+  - "Does the subquery need the same `WHERE` as the outer query?"
+trap: |
+  The easy slip is to take the average over the *whole* table: the 7 inactive products drag the average, and one product slips through that should not (57 rows instead of 56). A scalar subquery is evaluated independently of the outer row, so it needs its own `WHERE active` filter; hard-coding a number such as 260 also breaks as soon as prices change.
+followup: |
+  "Now show the premium products *of each category* - above their own category's average." (Same idea, but the subquery becomes correlated on `category_id`.) "What if the subquery returned two rows?" (Runtime error: a scalar subquery must return at most one row.)
+alternatives:
+  - |
+    SELECT p.id, p.name, p.price FROM products p, (SELECT avg(price) a FROM products WHERE active) x WHERE p.active AND p.price > x.a ORDER BY p.price DESC, p.id

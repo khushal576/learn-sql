@@ -1,0 +1,20 @@
+id: jn-001
+title: Customers who never ordered
+topic: joins
+tags: [anti-join, left-join, "null"]
+difficulty: easy
+dataset: ecommerce
+prompt: |
+  Return the **id** and **name** of every customer who has **never placed an order**.
+solution_sql: |
+  SELECT c.id, c.name FROM customers c LEFT JOIN orders o ON o.customer_id = c.id WHERE o.id IS NULL
+compare: {order_matters: false}
+hints:
+  - "A LEFT JOIN keeps customers with no match; their order columns are NULL."
+  - "NOT EXISTS is the other classic way to write an anti-join."
+trap: |
+  The trap is the *other* anti-join: `WHERE id NOT IN (SELECT customer_id FROM orders)` returns NOTHING as soon as one orders.customer_id is NULL. LEFT JOIN … IS NULL and NOT EXISTS are NULL-safe.
+followup: |
+  "Which of the three anti-join forms is fastest on 100 million orders, and why?" (Think: hash anti join, index on orders.customer_id.)
+alternatives:
+  - "SELECT id, name FROM customers c WHERE NOT EXISTS (SELECT 1 FROM orders o WHERE o.customer_id = c.id)"

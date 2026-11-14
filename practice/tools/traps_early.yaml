@@ -1,0 +1,47 @@
+# wrong/right pairs for the first six questions (written before the harness existed)
+ag-001:
+  wrong: |
+    SELECT date_trunc('month', o.order_date)::date AS month, sum(i.unit_price) AS revenue
+    FROM orders o JOIN order_items i ON i.order_id = o.id WHERE o.status = 'delivered' GROUP BY 1 ORDER BY 1
+  right: |
+    SELECT date_trunc('month', order_date)::date AS month, sum(quantity * unit_price) AS revenue
+    FROM order_items i JOIN orders o ON o.id = i.order_id WHERE o.status = 'delivered' GROUP BY 1 ORDER BY 1
+jn-001:
+  wrong: |
+    SELECT c.id, c.name FROM customers c JOIN orders o ON o.customer_id = c.id
+  right: |
+    SELECT id, name FROM customers c WHERE NOT EXISTS (SELECT 1 FROM orders o WHERE o.customer_id = c.id)
+jn-002:
+  wrong: |
+    SELECT p.name AS product, c.name AS category FROM products p JOIN categories c ON c.id = p.category_id
+    JOIN order_items i ON i.product_id = p.id WHERE i.quantity IS NULL
+  right: |
+    SELECT p.name AS product, c.name AS category FROM products p JOIN categories c ON c.id = p.category_id
+    LEFT JOIN order_items i ON i.product_id = p.id WHERE i.product_id IS NULL
+rc-001:
+  wrong: |
+    WITH RECURSIVE tree AS (SELECT id, name, 0 AS depth FROM employees WHERE id = 3
+      UNION ALL SELECT e.id, e.name, t.depth + 1 FROM employees e JOIN tree t ON e.manager_id = t.id)
+    SELECT id, name, depth FROM tree
+  right: |
+    WITH RECURSIVE tree(id, name, depth) AS (SELECT id, name, 1 FROM employees WHERE manager_id = 3
+      UNION ALL SELECT e.id, e.name, t.depth + 1 FROM employees e JOIN tree t ON e.manager_id = t.id)
+    SELECT id, name, depth FROM tree
+sb-001:
+  wrong: |
+    SELECT name, email FROM customers WHERE country = 'India' ORDER BY name, email
+  right: |
+    SELECT name, email FROM customers WHERE segment = 'corporate' AND country = 'India' ORDER BY name, email
+wf-031:
+  wrong: |
+    SELECT category, product, revenue, rnk FROM (
+      SELECT c.name AS category, p.name AS product, sum(i.quantity * i.unit_price) AS revenue,
+             rank() OVER (ORDER BY sum(i.quantity * i.unit_price) DESC) AS rnk
+      FROM order_items i JOIN products p ON p.id = i.product_id JOIN categories c ON c.id = p.category_id
+      GROUP BY c.name, p.name) t WHERE rnk <= 3
+  right: |
+    SELECT category, product, revenue, rnk FROM (
+      SELECT c.name AS category, p.name AS product, sum(i.quantity * i.unit_price) AS revenue,
+             dense_rank() OVER (PARTITION BY c.name ORDER BY sum(i.quantity * i.unit_price) DESC) AS rnk
+      FROM order_items i JOIN products p ON p.id = i.product_id JOIN categories c ON c.id = p.category_id
+      GROUP BY c.name, p.name) t WHERE rnk <= 3

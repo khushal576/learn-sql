@@ -1,0 +1,21 @@
+id: sb-002
+title: Three numbers about the customer base
+topic: select-basics
+tags: [count, "null", distinct]
+difficulty: easy
+dataset: ecommerce
+prompt: |
+  You are the analyst at an online shop. The CEO asks three quick numbers about the customer base:
+  how many customers there are, how many of them have a **city on file**, and how many **different cities** appear.
+
+  Return one row with the columns `total_customers`, `with_city` and `distinct_cities`.
+solution_sql: |
+  SELECT count(*) AS total_customers, count(city) AS with_city, count(DISTINCT city) AS distinct_cities FROM customers
+compare: {order_matters: false}
+hints:
+  - "COUNT(*) counts rows. What does COUNT(some_column) count?"
+  - "DISTINCT goes inside the COUNT."
+trap: |
+  `COUNT(*)` counts rows, `COUNT(city)` skips NULLs, and `COUNT(DISTINCT city)` skips NULLs *and* duplicates. People write `COUNT(*)` for all three, or are surprised that `with_city` is smaller than `total_customers`.
+followup: |
+  "What does `COUNT(DISTINCT city)` return if every city is NULL?" (0, not 1.) "How would you count 'no city' as one more city?" (`COUNT(DISTINCT COALESCE(city, '(none)'))`.)

@@ -1,0 +1,33 @@
+id: wf-026
+title: "The moment an account first went negative"
+topic: window-functions
+tags: [running-balance, ties, rows-vs-range]
+difficulty: hard
+dataset: bank
+prompt: |
+  Risk wants to know when **checking accounts 1 to 60** first went into the red. The balance is the running sum of the signed `amount`
+  of an account's transactions, in the order `tx_date`, then `id` (several transactions share a day - they happen in `id` order).
+
+  For every such account that ever had a negative balance, return `account_id`, `first_negative_date` (the date of the transaction after
+  which the balance first became negative) and `balance` (the balance right after that transaction). Accounts that never go negative
+  are not listed. Order by `account_id`.
+solution_sql: |
+  WITH r AS (
+    SELECT t.account_id, t.tx_date,
+           sum(t.amount) OVER (PARTITION BY t.account_id ORDER BY t.tx_date, t.id) AS bal,
+           t.id
+    FROM transactions t JOIN accounts a ON a.id = t.account_id
+    WHERE a.type = 'checking' AND a.id <= 60
+  ), f AS (
+    SELECT *, row_number() OVER (PARTITION BY account_id ORDER BY tx_date, id) AS rn
+    FROM r WHERE bal < 0
+  )
+  SELECT account_id, tx_date AS first_negative_date, bal AS balance FROM f WHERE rn = 1 ORDER BY account_id
+compare: {order_matters: true}
+hints:
+  - "Running balance first (CTE), then keep the first row with a negative balance per account."
+  - "The ORDER BY inside the window decides what counts as 'the same moment'. Is `tx_date` alone enough here?"
+trap: |
+  `sum(amount) OVER (PARTITION BY account_id ORDER BY tx_date)` without the `id` tie-break uses the default RANGE frame, so the two same-day transactions are peers and BOTH are already included in every balance of that day. A balance that dipped below zero for the first transaction of the day and recovered with the second is never seen: accounts 11, 15, 39 and 53 report a later date (or are missing entirely, like 9, 19, 21, 43, 45, 49 and 55) in the wrong answer.
+followup: |
+  "How long did each account stay negative before its first recovery?" (Gaps-and-islands on the sign of the balance.) "Which frame would give the same answer without the tie-break?" (None - `ROWS` with an unstable order is non-deterministic, you need the `id`.)

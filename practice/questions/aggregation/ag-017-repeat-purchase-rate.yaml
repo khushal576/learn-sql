@@ -1,0 +1,32 @@
+id: ag-017
+title: Repeat-purchase rate Q1 2023
+topic: aggregation
+tags:
+- percentage
+- denominator
+- having
+difficulty: hard
+dataset: ecommerce
+prompt: |
+  Retention reports the **repeat-purchase rate** for the **first quarter of 2023** (orders with `order_date` from 2023-01-01 to
+  2023-03-31, any status): the number of customers with **at least 2 orders** in that quarter divided by the number of customers with
+  **at least 1 order** in that quarter, as a percentage between 0 and 100, **rounded to 1 decimal**.
+
+  Return one row with `repeat_rate`.
+solution_sql: |
+  WITH per_customer AS (
+    SELECT customer_id, count(*) AS n
+    FROM orders
+    WHERE order_date >= '2023-01-01' AND order_date < '2023-04-01'
+    GROUP BY customer_id)
+  SELECT round(100.0 * count(*) FILTER (WHERE n >= 2) / count(*), 1) AS repeat_rate
+  FROM per_customer
+compare:
+  order_matters: false
+hints:
+- Aggregate to one row per customer first; the rate is then a ratio over those rows.
+- 'Who belongs in the denominator: every customer in the table or only the buyers of the quarter?'
+trap: |
+  Three ways to be wrong: the denominator is *all* customers (600) instead of those who ordered in the quarter (390) - the rate drops from 47.2 to 30.7 because inactive people are counted as non-repeaters; integer division (`184 / 390 = 0`); or filtering `HAVING n >= 2` before counting so the denominator is also only repeaters (100 %).
+followup: |
+  "How would you get the rate for every quarter in one result?" (Group the per-customer counts by `date_trunc('quarter', order_date)` too, then the same ratio per quarter.)

@@ -1,0 +1,24 @@
+id: jn-008
+title: Top final scores per course (zeros included)
+topic: joins
+tags: [left-join, on-vs-where, count]
+difficulty: medium
+dataset: school
+prompt: |
+  The head of studies wants, **for every course**, how many students got a **final exam score of 95 or more**.
+  Courses where nobody did must still appear, with `0`.
+
+  Return `course_id`, `title` and `top_finals`, ordered by `course_id`.
+solution_sql: |
+  SELECT c.id AS course_id, c.title, count(s.id) AS top_finals
+  FROM courses c
+  LEFT JOIN scores s ON s.course_id = c.id AND s.exam = 'final' AND s.score >= 95
+  GROUP BY c.id, c.title
+  ORDER BY c.id
+compare: {order_matters: true}
+hints:
+  - "Where does a filter on the right-hand table belong in a LEFT JOIN — ON or WHERE?"
+trap: |
+  Moving `s.exam = 'final' AND s.score >= 95` from the `ON` clause into `WHERE` turns the LEFT JOIN into an inner join: rows with no match have NULL in `s.exam`, the WHERE rejects them, and the six courses with zero top finals vanish. **A filter on the optional side belongs in ON.**
+followup: |
+  "What is the difference between `COUNT(*)` and `COUNT(s.id)` here?" (`COUNT(*)` would report 1 for an empty course — the unmatched row itself.)

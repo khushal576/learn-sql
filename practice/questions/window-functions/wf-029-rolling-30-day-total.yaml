@@ -1,0 +1,26 @@
+id: wf-029
+title: "Rolling 30-day total of an account"
+topic: window-functions
+tags: [range-frame, interval, rows-vs-range]
+difficulty: hard
+dataset: bank
+prompt: |
+  Fraud analysts look at **account 5** and want, for every transaction, the **rolling 30-day total**: the sum of `amount` of all of the
+  account's transactions whose `tx_date` is within the 30 calendar days ending on this transaction's date (the date itself plus the 29
+  days before it). Transactions on the same day see the same window.
+
+  Return `id`, `tx_date`, `amount`, `rolling_30d`, ordered by `tx_date`, `id`.
+solution_sql: |
+  SELECT id, tx_date, amount,
+         sum(amount) OVER (ORDER BY tx_date RANGE BETWEEN INTERVAL '29 days' PRECEDING AND CURRENT ROW) AS rolling_30d
+  FROM transactions
+  WHERE account_id = 5
+  ORDER BY tx_date, id
+compare: {order_matters: true}
+hints:
+  - "The window is defined in DAYS, not in rows. Which frame mode measures distance on the ORDER BY value?"
+  - "`RANGE` with an interval needs exactly one ORDER BY column of a date/time type."
+trap: |
+  `ROWS BETWEEN 29 PRECEDING AND CURRENT ROW` counts 30 *rows*, not 30 days - with this sparse account (a transaction every ~7 weeks) it degenerates into a running total of all earlier rows, so most totals are wrong. Even `ROWS` with the right row count would treat the two same-day transactions differently (the first one would not see the second), whereas `RANGE` makes same-date peers share one window and one total.
+followup: |
+  "Why can't `RANGE ... INTERVAL` be used with `ORDER BY tx_date, id`?" (A distance frame needs a single ordering key.) "What if the data has gaps and you need a fixed 30-day calendar?" (Join a generated date series.)

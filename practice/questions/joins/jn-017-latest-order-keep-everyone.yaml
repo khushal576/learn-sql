@@ -1,0 +1,27 @@
+id: jn-017
+title: Latest order — and keep customers with none
+topic: joins
+tags: [lateral, left-join, unmatched-rows]
+difficulty: hard
+dataset: ecommerce
+prompt: |
+  Customer success is reviewing customers **536 to 545**. For each one show their **most recent order** (ties:
+  higher `id` wins). Customers who **never ordered** must still be listed, with empty order columns.
+
+  Return `customer_id`, `last_order_id` and `last_order_date`, ordered by `customer_id`.
+solution_sql: |
+  SELECT c.id AS customer_id, o.id AS last_order_id, o.order_date AS last_order_date
+  FROM customers c
+  LEFT JOIN LATERAL (
+    SELECT id, order_date FROM orders WHERE customer_id = c.id ORDER BY order_date DESC, id DESC LIMIT 1
+  ) o ON true
+  WHERE c.id BETWEEN 536 AND 545
+  ORDER BY c.id
+compare: {order_matters: true}
+hints:
+  - "What happens to a customer whose LATERAL subquery returns no rows?"
+  - "A LEFT JOIN needs an ON clause even for LATERAL — `ON true` is the idiom."
+trap: |
+  `CROSS JOIN LATERAL` (or `, LATERAL`, or `JOIN LATERAL … ON true`) is an **inner** join: a customer whose subquery returns nothing disappears. Customers 541-545 have no orders, so they vanish. `LEFT JOIN LATERAL (…) ON true` keeps them.
+followup: |
+  "Why is `ON true` needed?" (The syntax demands an ON for LEFT JOIN; the correlation already lives inside the subquery.) "Return the customer's order COUNT as well without a second scan?" (Add a second LATERAL, or use window functions inside.)

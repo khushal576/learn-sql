@@ -1,0 +1,19 @@
+id: sb-001
+title: Corporate customers from India
+topic: select-basics
+tags: [where, filtering, order-by]
+difficulty: easy
+dataset: ecommerce
+prompt: |
+  List the **name** and **email** of every customer in the **corporate** segment who lives in **India**,
+  ordered by name (A to Z).
+solution_sql: |
+  SELECT name, email FROM customers WHERE segment = 'corporate' AND country = 'India' ORDER BY name, email
+compare: {order_matters: true}
+hints:
+  - "Two conditions joined with AND."
+  - "Break name ties by email so the order is fully defined."
+trap: |
+  `country = 'India'` is case-sensitive and `segment` is text, not a number. The bigger trap is ORDER BY name alone: names repeat, so two runs may order the same-name customers differently. Always add a tie-breaker.
+followup: |
+  "What if some customers have a NULL country?" They are silently dropped by `country = 'India'` — NULL is never equal to anything. Would you want them in the result?

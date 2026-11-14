@@ -1,0 +1,22 @@
+id: sb-008
+title: Sign-ups in the last 90 days
+topic: select-basics
+tags: [dates, boundary, off-by-one]
+difficulty: medium
+dataset: ecommerce
+prompt: |
+  Treat **today as 2024-06-30** (fixed, so the answer never changes). The growth team wants every customer who signed up
+  in the **last 90 days** — a customer who signed up exactly 90 days ago **counts**, and nobody signed up in the future.
+
+  Return `id`, `name` and `signup_date`, oldest sign-up first (ties by `id`).
+solution_sql: |
+  SELECT id, name, signup_date FROM customers
+  WHERE signup_date >= DATE '2024-06-30' - 90 AND signup_date <= DATE '2024-06-30'
+  ORDER BY signup_date, id
+compare: {order_matters: true}
+hints:
+  - "`DATE '2024-06-30' - 90` is a date 90 days earlier. Is the boundary day in or out?"
+trap: |
+  Two classic slips: `>` instead of `>=` (loses the customer who signed up exactly on the boundary — there is one here), and writing `now() - interval '90 days'` in an interview answer, which changes every day and is a timestamp, not a date (so 'exactly 90 days ago' depends on the time of day).
+followup: |
+  "How would you write 'the last 3 calendar months' instead?" (`>= date_trunc('month', today) - interval '3 months'` — calendar months are not 90 days.)

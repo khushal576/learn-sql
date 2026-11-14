@@ -1,0 +1,23 @@
+id: jn-005
+title: Employees next to their manager
+topic: joins
+tags: [self-join, left-join, hierarchy]
+difficulty: easy
+dataset: hr
+prompt: |
+  For the **first 8 employees** (`id` 1 to 8) show who their **manager** is, by name. The CEO has no manager — the
+  CEO must still be listed, with an empty manager.
+
+  Return `id`, `name` and `manager`, ordered by `id`.
+solution_sql: |
+  SELECT e.id, e.name, m.name AS manager
+  FROM employees e LEFT JOIN employees m ON m.id = e.manager_id
+  WHERE e.id <= 8
+  ORDER BY e.id
+compare: {order_matters: true}
+hints:
+  - "A self-join needs two aliases of the same table: one for the employee, one for the manager."
+trap: |
+  An inner self-join loses the top of the tree: the CEO's `manager_id` is NULL, so nothing matches and the row disappears — in a real org chart that is the one person you most want to see. Also watch the ON clause: `ON m.id = e.id` joins every employee to themselves.
+followup: |
+  "How would you list the manager's manager too?" (Join `employees` a third time — or use a recursive CTE for any depth.)

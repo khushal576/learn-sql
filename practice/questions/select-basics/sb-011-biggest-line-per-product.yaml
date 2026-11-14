@@ -1,0 +1,31 @@
+id: sb-011
+title: Biggest bulk order line per product
+topic: select-basics
+tags: [distinct-on, ties, order-by]
+difficulty: hard
+dataset: ecommerce
+prompt: |
+  The warehouse wants, for each of the **first 15 products** (`product_id` 1 to 15), the order line with the **highest
+  quantity**. Many lines share the same top quantity — in that case they want the **most recent order** (highest `order_id`).
+
+  Return `product_id`, `order_id` and `quantity`, ordered by `product_id`.
+solution_sql: |
+  SELECT DISTINCT ON (product_id) product_id, order_id, quantity
+  FROM order_items
+  WHERE product_id <= 15
+  ORDER BY product_id, quantity DESC, order_id DESC
+compare: {order_matters: true}
+hints:
+  - "DISTINCT ON (x) keeps the FIRST row of each x group — first according to the ORDER BY."
+  - "The ORDER BY must start with the DISTINCT ON column."
+trap: |
+  `DISTINCT ON` picks the first row per group *by your ORDER BY*. If you stop at `ORDER BY product_id, quantity DESC`, many lines tie on quantity and Postgres returns an arbitrary one — the query 'works' and gives a different answer after the next VACUUM. The tie-breaker (`order_id DESC`) is what makes it deterministic.
+followup: |
+  "Write the same without DISTINCT ON." (`ROW_NUMBER() OVER (PARTITION BY product_id ORDER BY quantity DESC, order_id DESC)` then keep 1 — the portable version.) "Which is faster with an index on (product_id, quantity DESC, order_id DESC)?" (DISTINCT ON can walk the index.)
+alternatives:
+  - |
+    SELECT product_id, order_id, quantity FROM (
+      SELECT product_id, order_id, quantity,
+             row_number() OVER (PARTITION BY product_id ORDER BY quantity DESC, order_id DESC) AS rn
+      FROM order_items WHERE product_id <= 15) t
+    WHERE rn = 1 ORDER BY product_id

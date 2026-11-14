@@ -1,0 +1,23 @@
+id: sb-005
+title: Closing the books for March 2023
+topic: select-basics
+tags: [between, timestamp, date-range]
+difficulty: medium
+dataset: ecommerce
+prompt: |
+  Finance closes the books for **March 2023**. List every payment that was made during March 2023
+  (`paid_at` is a timestamp, with a time of day).
+
+  Return `id`, `order_id`, `amount` and `paid_at`, oldest first (ties by `id`).
+solution_sql: |
+  SELECT id, order_id, amount, paid_at FROM payments
+  WHERE paid_at >= DATE '2023-03-01' AND paid_at < DATE '2023-04-01'
+  ORDER BY paid_at, id
+compare: {order_matters: true}
+hints:
+  - "A timestamp on 2023-03-31 at 09:30 is later than the date 2023-03-31 (which means midnight)."
+  - "Try a range that starts at the first of March and stops BEFORE the first of April."
+trap: |
+  `BETWEEN '2023-03-01' AND '2023-03-31'` compares against **midnight** of March 31 — every payment made on the 31st after 00:00 is silently lost (7 payments here). `BETWEEN` is inclusive at both ends, which is exactly why it is wrong for timestamps.
+followup: |
+  "Why do people say 'half-open ranges' (`>= start AND < next_start`)?" (They work for dates, timestamps and timestamptz alike, and they stay index-friendly — unlike `paid_at::date = …` or `date_trunc('month', paid_at) = …` on the column.)

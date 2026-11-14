@@ -1,0 +1,33 @@
+id: ag-003
+title: March cash flow by account type
+topic: aggregation
+tags:
+- filter
+- conditional-aggregation
+- signed-amounts
+difficulty: easy
+dataset: bank
+prompt: |
+  Finance wants to know, per **account type**, how much money came in and how much went out during **March 2024** (`tx_date`
+  from 2024-03-01 to 2024-03-31). In `transactions` the `amount` is signed: positive = money in, negative = money out.
+
+  Return `type`, `money_in` (sum of the positive amounts) and `money_out` (sum of the negative amounts, shown as a **positive** number),
+  ordered by `type`.
+solution_sql: |
+  SELECT a.type,
+         sum(t.amount) FILTER (WHERE t.amount > 0) AS money_in,
+         -sum(t.amount) FILTER (WHERE t.amount < 0) AS money_out
+  FROM transactions t
+  JOIN accounts a ON a.id = t.account_id
+  WHERE t.tx_date >= '2024-03-01' AND t.tx_date < '2024-04-01'
+  GROUP BY a.type
+  ORDER BY a.type
+compare:
+  order_matters: true
+hints:
+- Both numbers come from the same rows - you cannot filter them in WHERE.
+- '`sum(x) FILTER (WHERE condition)` (or `sum(CASE WHEN ... END)`) aggregates only the matching rows.'
+trap: |
+  Putting `WHERE amount > 0` in the main query keeps only deposits, so `money_out` has nothing left to sum (NULL). Two different conditions on the same rows belong *inside* the aggregates (`FILTER` / `CASE`), not in `WHERE`. Also note the sign: money out is negative in the table, so it has to be negated for the report.
+followup: |
+  "Add a `net` column and a row for all types together." (`money_in - money_out`; `GROUP BY ROLLUP (a.type)` for the total row.)

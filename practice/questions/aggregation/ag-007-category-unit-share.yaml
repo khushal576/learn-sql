@@ -1,0 +1,33 @@
+id: ag-007
+title: Share of units per category
+topic: aggregation
+tags:
+- window
+- percentage
+- integer-division
+difficulty: medium
+dataset: ecommerce
+prompt: |
+  Merchandising wants to see how the **units sold** are spread over product categories. Use the category each product is filed in
+  (`products.category_id`) and count every order line's `quantity`, regardless of order status.
+
+  Return `category` (the category name), `units` and `pct_of_units` - the category's share of all units sold as a percentage
+  between 0 and 100, **rounded to 2 decimals** - ordered by `units` descending, then `category`.
+solution_sql: |
+  SELECT c.name AS category,
+         sum(i.quantity) AS units,
+         round(100.0 * sum(i.quantity) / sum(sum(i.quantity)) OVER (), 2) AS pct_of_units
+  FROM order_items i
+  JOIN products p ON p.id = i.product_id
+  JOIN categories c ON c.id = p.category_id
+  GROUP BY c.name
+  ORDER BY units DESC, category
+compare:
+  order_matters: true
+hints:
+- You need the grand total next to each category's total - a window function over the grouped rows can give it.
+- '`sum(sum(x)) OVER ()` is legal: the inner sum is the aggregate, the outer one the window. Mind the type of the division.'
+trap: |
+  **Integer division.** `sum(quantity)` is an integer, so `sum(quantity) / total * 100` truncates to 0 before it is multiplied (every category is under 100 %). Multiply by `100.0` first (or cast to numeric) so the division happens on decimals.
+followup: |
+  "The same share but without a window function?" (A scalar subquery for the total: `... / (SELECT sum(quantity) FROM order_items)`.) "And the share *within the top-level category*?" (`PARTITION BY` the parent.)

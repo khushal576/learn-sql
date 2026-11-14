@@ -1,0 +1,25 @@
+id: jn-014
+title: Reviewers who never bought anything
+topic: joins
+tags: [except, anti-join, distinct]
+difficulty: hard
+dataset: ecommerce
+prompt: |
+  The fraud team is suspicious of reviews written by people with **no order at all**. List the **customers who wrote
+  at least one review but have never placed an order** — each customer once.
+
+  Return `customer_id`, ordered by `customer_id`.
+solution_sql: |
+  SELECT customer_id FROM reviews
+  EXCEPT
+  SELECT customer_id FROM orders
+  ORDER BY customer_id
+compare: {order_matters: true}
+hints:
+  - "A customer can have written many reviews. Does your result list them once each?"
+trap: |
+  The natural anti-join `reviews LEFT JOIN orders … WHERE o.id IS NULL` returns **one row per review**, so a reviewer with five reviews appears five times — you need `DISTINCT`. `EXCEPT` removes duplicates by itself (and compares whole rows, which is why both sides must have the same columns).
+followup: |
+  "What is `EXCEPT ALL`?" (Keeps duplicates, subtracting counts.) "Reviews of products by customers who never bought *that* product?" (The next-but-one hard question: the anti-join has to match on two columns.)
+alternatives:
+  - "SELECT DISTINCT r.customer_id FROM reviews r WHERE NOT EXISTS (SELECT 1 FROM orders o WHERE o.customer_id = r.customer_id) ORDER BY 1"

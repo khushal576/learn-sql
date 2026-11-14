@@ -1,0 +1,36 @@
+id: wf-005
+title: Each phone's share of the Phones category revenue
+topic: window-functions
+tags: [sum-over, percent-of-total, group-by]
+difficulty: medium
+dataset: ecommerce
+prompt: |
+  The category manager of **Phones** (category name `Phones`) wants to know how much each phone model contributes to the category.
+  Revenue of a product = `sum(quantity * unit_price)` over all its order lines (any order status).
+  Return `product_id`, `product`, `revenue` and `pct_of_category` (the product's revenue as a percentage **0-100** of the whole Phones category revenue, rounded to 2 decimals),
+  ordered by `revenue` descending, then `product_id`.
+solution_sql: |
+  SELECT p.id AS product_id, p.name AS product, sum(i.quantity * i.unit_price) AS revenue,
+         round(100.0 * sum(i.quantity * i.unit_price) / sum(sum(i.quantity * i.unit_price)) OVER (), 2) AS pct_of_category
+  FROM products p
+  JOIN categories c ON c.id = p.category_id
+  JOIN order_items i ON i.product_id = p.id
+  WHERE c.name = 'Phones'
+  GROUP BY p.id, p.name
+  ORDER BY revenue DESC, p.id
+compare: {order_matters: true}
+hints:
+  - "A window function runs after GROUP BY, so it can wrap an aggregate: sum(sum(...)) OVER ()."
+  - "WHERE removes the other categories before the window is computed, so OVER () already means 'the Phones category'."
+trap: |
+  Taking the total from the whole table (a scalar subquery over every order line, or computing the share before filtering to Phones) gives the share of the **company** revenue, a much smaller number, and the shares of the category no longer add up to 100.
+followup: |
+  "Now show this for every category at once." (Remove the WHERE and use PARTITION BY category; or sum(...) OVER (PARTITION BY c.name).)
+alternatives:
+  - |
+    WITH r AS (
+      SELECT p.id AS product_id, p.name AS product, sum(i.quantity * i.unit_price) AS revenue
+      FROM products p JOIN categories c ON c.id = p.category_id JOIN order_items i ON i.product_id = p.id
+      WHERE c.name = 'Phones' GROUP BY p.id, p.name)
+    SELECT product_id, product, revenue, round(100.0 * revenue / (SELECT sum(revenue) FROM r), 2) AS pct_of_category
+    FROM r ORDER BY revenue DESC, product_id

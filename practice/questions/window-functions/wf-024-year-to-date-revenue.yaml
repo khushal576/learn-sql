@@ -1,0 +1,30 @@
+id: wf-024
+title: "Year-to-date revenue that restarts each year"
+topic: window-functions
+tags: [running-total, partition-by, ytd]
+difficulty: medium
+dataset: ecommerce
+prompt: |
+  The CFO wants a **year-to-date** revenue column next to monthly revenue. Revenue = `sum(quantity * unit_price)` over the order lines
+  of non-cancelled orders, grouped by the month of `order_date`. Our data covers 2023 and 2024, and the YTD total must **restart in January**.
+
+  Return `month` (the first day of the month, as a date), `revenue` and `ytd`, ordered by `month`.
+solution_sql: |
+  WITH m AS (
+    SELECT date_trunc('month', o.order_date)::date AS month, sum(i.quantity * i.unit_price) AS revenue
+    FROM orders o JOIN order_items i ON i.order_id = o.id
+    WHERE o.status <> 'cancelled'
+    GROUP BY 1
+  )
+  SELECT month, revenue,
+         sum(revenue) OVER (PARTITION BY extract(year FROM month) ORDER BY month) AS ytd
+  FROM m
+  ORDER BY month
+compare: {order_matters: true}
+hints:
+  - "First produce one row per month, then run the window on those rows."
+  - "What should reset the running sum? That is your PARTITION BY."
+trap: |
+  A running sum with only `ORDER BY month` never resets: January 2024 shows 5.6 million (all of 2023 plus January) instead of a fresh ~441 thousand, and every 2024 'YTD' is wrong - all 11 rows of 2024 (of 23). The reset condition is exactly what goes into `PARTITION BY`.
+followup: |
+  "Add the same month's revenue of the previous year and the growth percentage." (`lag(revenue, 12) OVER (ORDER BY month)` - safe only because there are no missing months.)

@@ -1,0 +1,31 @@
+id: ag-011
+title: Orders per customer histogram
+topic: aggregation
+tags:
+- two-level-aggregation
+- left-join
+- histogram
+difficulty: medium
+dataset: ecommerce
+prompt: |
+  The growth team wants a **histogram** of customer activity: how many customers placed 0 orders, how many placed 1, and so
+  on. Customers who never ordered must be included (as 0 orders).
+
+  Return `orders_placed` and `customers` (how many customers have that many orders), ordered by `orders_placed`.
+solution_sql: |
+  SELECT n AS orders_placed, count(*) AS customers
+  FROM (
+    SELECT c.id, count(o.id) AS n
+    FROM customers c LEFT JOIN orders o ON o.customer_id = c.id
+    GROUP BY c.id) t
+  GROUP BY n
+  ORDER BY n
+compare:
+  order_matters: true
+hints:
+- First one number per customer, then count the customers that share each number - two levels of GROUP BY.
+- Which customers does an inner join lose?
+trap: |
+  Two traps stacked: an inner join between `customers` and `orders` loses every customer without orders (210 of them) - the 0 bar of the histogram disappears; and a LEFT JOIN with `count(*)` would give those customers a 1. It needs a LEFT JOIN plus `count(o.id)`, and then a second aggregation over the per-customer counts.
+followup: |
+  "Group the histogram into buckets: 0, 1-10, 11-50, 51+." (A `CASE` on the per-customer count inside the outer query, or `width_bucket`.)

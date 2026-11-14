@@ -1,0 +1,24 @@
+id: jn-013
+title: Hired before their own manager
+topic: joins
+tags: [self-join, non-equi-join, dates]
+difficulty: medium
+dataset: hr
+prompt: |
+  HR is curious: which employees of the **Engineering department** (`dept_id` 1) were **hired before their own
+  manager**? (Strictly earlier hire date.)
+
+  Return `id`, `name` and `manager_id`, ordered by `id`.
+solution_sql: |
+  SELECT e.id, e.name, e.manager_id
+  FROM employees e JOIN employees m ON m.id = e.manager_id
+  WHERE e.dept_id = 1 AND e.hire_date < m.hire_date
+  ORDER BY e.id
+compare: {order_matters: true}
+hints:
+  - "The manager is a row of the same table — join employees to itself on manager_id."
+  - "The department filter is on the employee, not on the manager."
+trap: |
+  The classic slips: joining on `m.dept_id = e.dept_id` instead of `m.id = e.manager_id` (compares each person with their whole department), filtering the manager's department instead of the employee's, and `<=` instead of `<`. An INNER self-join also drops the CEO — fine here, but know *why*.
+followup: |
+  "Show the gap in days between the two hire dates, largest first." (`m.hire_date - e.hire_date` — a date minus a date is an integer.)

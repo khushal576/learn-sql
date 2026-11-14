@@ -1,0 +1,32 @@
+id: jn-019
+title: Teacher scoreboard across four tables
+topic: joins
+tags: [multi-join, fan-out, left-join, count-distinct]
+difficulty: hard
+dataset: school
+prompt: |
+  The principal wants one line **per teacher** (all 12 of them): the number of **courses** they teach, the number of
+  **distinct students** in those courses (any enrollment status), and the **average midterm score** of those students
+  in those courses, rounded to 2 decimals. Teachers without courses show `0`, `0` and an empty average.
+
+  Return `teacher_id`, `courses`, `students` and `avg_midterm`, ordered by `teacher_id`.
+solution_sql: |
+  SELECT t.id AS teacher_id,
+         count(DISTINCT c.id) AS courses,
+         count(DISTINCT e.student_id) AS students,
+         round(avg(s.score) FILTER (WHERE s.exam = 'midterm'), 2) AS avg_midterm
+  FROM teachers t
+  LEFT JOIN courses c ON c.teacher_id = t.id
+  LEFT JOIN enrollments e ON e.course_id = c.id
+  LEFT JOIN scores s ON s.student_id = e.student_id AND s.course_id = e.course_id
+  GROUP BY t.id
+  ORDER BY t.id
+compare: {order_matters: true}
+hints:
+  - "Every join to a deeper table multiplies the rows above it. Which counts need DISTINCT?"
+  - "The scores table is joined on TWO columns (student and course)."
+  - "A student has up to two score rows per course (midterm and final) — which one do you average?"
+trap: |
+  Four things at once: (1) `COUNT(c.id)` counts once per enrollment, not per course (fan-out) → `COUNT(DISTINCT c.id)`; (2) inner joins drop the two idle teachers; (3) joining scores on `student_id` alone mixes a student's scores from *other* courses; (4) the average silently includes finals unless you filter the exam. Each is a bug that returns plausible-looking numbers.
+followup: |
+  "Why is it dangerous to AVG over a joined result?" (If the join repeats a row, that row is weighted more — an average of an average. Here each midterm appears once per enrollment so it is safe, but you must be able to argue it.)

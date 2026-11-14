@@ -1,0 +1,22 @@
+id: sb-007
+title: An offer for everyone outside Pune
+topic: select-basics
+tags: ["null", is-distinct-from, filtering]
+difficulty: medium
+dataset: ecommerce
+prompt: |
+  Marketing wants to send an offer to **corporate** customers who do **not** live in **Pune** — including the customers
+  who have **no city on file**.
+
+  Return `id`, `name` and `city`, ordered by `id`.
+solution_sql: |
+  SELECT id, name, city FROM customers WHERE segment = 'corporate' AND city IS DISTINCT FROM 'Pune' ORDER BY id
+compare: {order_matters: true}
+hints:
+  - "There are corporate customers whose city is NULL — are they in your result?"
+trap: |
+  `city <> 'Pune'` is NULL (not true) for a customer with no city, so that customer vanishes — 9 customers here. `NOT (city = 'Pune')` does the same. Use `city IS DISTINCT FROM 'Pune'` or `(city <> 'Pune' OR city IS NULL)`.
+followup: |
+  "What is the difference between `IS DISTINCT FROM` and `<>`?" (It treats NULL as an ordinary value: NULL IS DISTINCT FROM 'Pune' is true, NULL IS DISTINCT FROM NULL is false.)
+alternatives:
+  - "SELECT id, name, city FROM customers WHERE segment = 'corporate' AND (city <> 'Pune' OR city IS NULL) ORDER BY id"

@@ -1,0 +1,27 @@
+id: wf-023
+title: "Points needed to catch the next student"
+topic: window-functions
+tags: [lead, ranking, null]
+difficulty: medium
+dataset: school
+prompt: |
+  The Drama I teacher (**course 3**) wants to motivate students: for every student's **final** exam, show the score of the **next higher**
+  student and how many points are needed to catch up. Order students by `score` ascending, ties broken by `student_id`; the "next
+  higher" student is simply the next one in that order. The top student has nobody above, so both new columns are NULL for them.
+
+  Return `student_id`, `score`, `next_score`, `points_to_catch_up`, ordered by `score`, `student_id`.
+solution_sql: |
+  SELECT student_id, score,
+         lead(score) OVER (ORDER BY score, student_id) AS next_score,
+         lead(score) OVER (ORDER BY score, student_id) - score AS points_to_catch_up
+  FROM scores
+  WHERE course_id = 3 AND exam = 'final'
+  ORDER BY score, student_id
+compare: {order_matters: true}
+hints:
+  - "`LEAD` looks forward, `LAG` looks backward - in the window's ORDER BY direction."
+  - "What happens at the last row of the partition?"
+trap: |
+  Using `LAG` over the same ascending order (or `LEAD` over a descending order) gives the next *lower* student: the difference is negative or the NULL lands on the wrong end (the weakest student instead of the top one). Check which direction your window's ORDER BY runs before you pick LEAD or LAG.
+followup: |
+  "What if you wanted 0 instead of NULL for the top student?" (`lead(score, 1, score)` or `coalesce`.) "Give the next higher *distinct* score." (Needs a dedup CTE first - LEAD sees rows, not values.)

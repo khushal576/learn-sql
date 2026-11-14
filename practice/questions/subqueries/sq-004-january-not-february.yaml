@@ -1,0 +1,30 @@
+id: sq-004
+title: Customers who went quiet after January 2023
+topic: subqueries
+tags: [exists, not-exists, correlated-subquery]
+difficulty: easy
+dataset: ecommerce
+prompt: |
+  Marketing wants to win back customers who **ordered in January 2023** (`order_date` from 2023-01-01 to 2023-01-31) but **did not order at all in February 2023**. Look only at **customers 1 to 100** (`id`).
+
+  Return `customer_id`, ordered by `customer_id`.
+solution_sql: |
+  SELECT c.id AS customer_id
+  FROM customers c
+  WHERE c.id <= 100
+    AND EXISTS (SELECT 1 FROM orders o
+                WHERE o.customer_id = c.id AND o.order_date >= '2023-01-01' AND o.order_date < '2023-02-01')
+    AND NOT EXISTS (SELECT 1 FROM orders o
+                    WHERE o.customer_id = c.id AND o.order_date >= '2023-02-01' AND o.order_date < '2023-03-01')
+  ORDER BY c.id
+compare: {order_matters: true}
+hints:
+  - "Two conditions about the same customer: one must exist, one must not."
+  - "Inside each subquery, tie the order back to the outer customer."
+trap: |
+  If the `NOT EXISTS` subquery forgets `o.customer_id = c.id`, it asks "did *anybody* order in February?" - always yes - so the result is empty. A subquery that does not mention the outer row is evaluated once and is the same for everyone; the correlation is what turns it into a per-customer question.
+followup: |
+  "Same list with `EXCEPT`?" (`SELECT customer_id FROM orders WHERE jan EXCEPT SELECT customer_id FROM orders WHERE feb`.) "And with `NOT IN`?" (Works only because `customer_id` is NOT NULL; with NULLs in the subquery `NOT IN` returns nothing.)
+alternatives:
+  - |
+    SELECT customer_id FROM orders WHERE customer_id <= 100 AND order_date >= '2023-01-01' AND order_date < '2023-02-01' EXCEPT SELECT customer_id FROM orders WHERE order_date >= '2023-02-01' AND order_date < '2023-03-01' ORDER BY 1

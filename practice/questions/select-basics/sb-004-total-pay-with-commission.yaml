@@ -1,0 +1,21 @@
+id: sb-004
+title: Total pay when commission can be NULL
+topic: select-basics
+tags: ["null", coalesce, order-by]
+difficulty: easy
+dataset: hr
+prompt: |
+  Payroll needs the **total monthly pay** (`salary` + `commission`) of everyone in the **Sales** department (`dept_id` 2).
+  People without a commission have `NULL` there — they still must appear, paid just their salary.
+
+  Return `id`, `name` and `total_pay`, highest pay first (ties by `id`).
+solution_sql: |
+  SELECT id, name, salary + COALESCE(commission, 0) AS total_pay FROM employees WHERE dept_id = 2 ORDER BY total_pay DESC, id
+compare: {order_matters: true}
+hints:
+  - "What is `100 + NULL`?"
+  - "COALESCE(x, 0) gives 0 when x is NULL."
+trap: |
+  `salary + commission` is NULL whenever commission is NULL — and in an `ORDER BY … DESC`, Postgres puts NULLs FIRST, so the people with no commission end up at the top with a blank pay. Two bugs from one forgotten COALESCE.
+followup: |
+  "Is NULL commission the same as 0 commission for the business?" (Maybe not: NULL = not eligible, 0 = eligible but earned nothing — which is why you COALESCE only in the calculation, not in the table.)

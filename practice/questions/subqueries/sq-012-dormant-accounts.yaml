@@ -1,0 +1,27 @@
+id: sq-012
+title: Dormant accounts since October 2024
+topic: subqueries
+tags: [not-exists, exists, having, anti-join]
+difficulty: hard
+dataset: bank
+prompt: |
+  The bank calls an account **dormant** if it **had at least one transaction before 2024-10-01** but **no transaction on or after 2024-10-01**. Compliance wants the list.
+
+  Return `account_id`, ordered by `account_id`.
+solution_sql: |
+  SELECT a.id AS account_id
+  FROM accounts a
+  WHERE EXISTS (SELECT 1 FROM transactions t WHERE t.account_id = a.id AND t.tx_date < '2024-10-01')
+    AND NOT EXISTS (SELECT 1 FROM transactions t WHERE t.account_id = a.id AND t.tx_date >= '2024-10-01')
+  ORDER BY a.id
+compare: {order_matters: true}
+hints:
+  - "Dormant = something old exists AND nothing recent exists - two subqueries, one negated."
+  - "If you try `GROUP BY` with `max(tx_date)`, what rows has `WHERE` already thrown away?"
+trap: |
+  The tempting aggregate version `SELECT account_id FROM transactions WHERE tx_date < '2024-10-01' GROUP BY account_id HAVING max(tx_date) < '2024-10-01'` filters first, so the `max` only ever sees old rows and every account with an old transaction passes - 680 accounts instead of the 7 dormant ones. "Nothing recent" cannot be checked on a table from which the recent rows were already removed; that is exactly what `NOT EXISTS` expresses.
+followup: |
+  "What if an account has no transactions at all - dormant?" (Not with this definition: the `EXISTS` for an old transaction fails. Drop it and every such account appears, vacuously.) "Aggregate version that works?" (`GROUP BY account_id HAVING max(tx_date) < '2024-10-01'` **without** the WHERE filter.)
+alternatives:
+  - |
+    SELECT account_id FROM transactions GROUP BY account_id HAVING max(tx_date) < '2024-10-01' ORDER BY account_id

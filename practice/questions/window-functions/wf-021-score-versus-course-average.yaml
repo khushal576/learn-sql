@@ -1,0 +1,26 @@
+id: wf-021
+title: "Score versus the course average"
+topic: window-functions
+tags: [avg-over, partition-by, no-collapse]
+difficulty: medium
+dataset: school
+prompt: |
+  The teachers of **courses 1 and 2** want a feedback sheet for the **midterm** (`exam = 'midterm'`): every student's score, the average
+  midterm score of **that course** (rounded to 2 decimals) and how far the student is above (+) or below (-) that average.
+
+  Return `course_id`, `student_id`, `score`, `course_avg`, `vs_avg` (`score - course_avg`, 2 decimals), ordered by `course_id`, `score` descending, `student_id`.
+solution_sql: |
+  SELECT course_id, student_id, score,
+         round(avg(score) OVER (PARTITION BY course_id), 2) AS course_avg,
+         round(score - avg(score) OVER (PARTITION BY course_id), 2) AS vs_avg
+  FROM scores
+  WHERE exam = 'midterm' AND course_id IN (1, 2)
+  ORDER BY course_id, score DESC, student_id
+compare: {order_matters: true}
+hints:
+  - "You want an aggregate on every row without collapsing the rows."
+  - "What does the aggregate see if you forget to say 'per course'?"
+trap: |
+  `avg(score) OVER ()` is the average of the whole result, i.e. of both courses mixed. Every student is then compared with a blended average that belongs to neither course, so all 99 `course_avg` / `vs_avg` values are wrong for at least one of the courses. The window needs `PARTITION BY course_id` - the same reasoning as GROUP BY, minus the collapsing.
+followup: |
+  "Do the same with a plain GROUP BY." (Join the grouped averages back - a window function saves the self-join.) "Show only the students above their course average." (Wrap in a CTE; no window function in WHERE.)

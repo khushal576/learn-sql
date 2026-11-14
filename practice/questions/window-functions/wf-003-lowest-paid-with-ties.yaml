@@ -1,0 +1,32 @@
+id: wf-003
+title: The 7 lowest salary levels in department 1
+topic: window-functions
+tags: [rank, ties]
+difficulty: easy
+dataset: hr
+prompt: |
+  HR is budgeting a raise for the lowest-paid people of department **1** (`dept_id = 1`).
+  Rank the department's employees by `salary` from lowest to highest with **RANK**, and return everyone whose rank is **7 or better** (`rnk <= 7`) -
+  so people tied on the cut-off salary are all included.
+  Return `id`, `salary`, `rnk`, ordered by `rnk`, then `id`.
+solution_sql: |
+  SELECT id, salary, rnk FROM (
+    SELECT id, salary, rank() OVER (ORDER BY salary) AS rnk
+    FROM employees WHERE dept_id = 1
+  ) t
+  WHERE rnk <= 7
+  ORDER BY rnk, id
+compare: {order_matters: true}
+hints:
+  - "RANK() OVER (ORDER BY salary) ranks from the lowest salary up."
+  - "A window function cannot be used in WHERE; put the ranking in a subquery."
+trap: |
+  ROW_NUMBER would number the six people on exactly 60000 as 7, 8, 9... and keep only one of them, an arbitrary choice that is unfair to the others. RANK gives all six the same rank 7, so 12 people qualify instead of 7.
+followup: |
+  "What would DENSE_RANK <= 7 return?" (A different, larger set: it counts distinct salary levels, so the next ranks are 8, 9... without gaps after the tie.)
+alternatives:
+  - |
+    SELECT e.id, e.salary, (SELECT count(*) + 1 FROM employees x WHERE x.dept_id = 1 AND x.salary < e.salary) AS rnk
+    FROM employees e
+    WHERE e.dept_id = 1 AND (SELECT count(*) FROM employees x WHERE x.dept_id = 1 AND x.salary < e.salary) < 7
+    ORDER BY 3, 1

@@ -1,0 +1,24 @@
+id: sb-006
+title: Retention bonus for low or no commission
+topic: select-basics
+tags: ["null", three-valued-logic, where]
+difficulty: medium
+dataset: hr
+prompt: |
+  HR is paying a retention bonus to everyone in departments **2, 4 and 6** whose commission is **not above 2500** —
+  and that includes people who have **no commission at all** (`NULL`).
+
+  Return `id`, `name` and `commission`, ordered by `id`.
+solution_sql: |
+  SELECT id, name, commission FROM employees
+  WHERE dept_id IN (2, 4, 6) AND (commission IS NULL OR commission <= 2500)
+  ORDER BY id
+compare: {order_matters: true}
+hints:
+  - "A comparison with NULL is neither true nor false — WHERE only keeps rows where the condition is TRUE."
+trap: |
+  `commission <= 2500` silently drops everyone with a NULL commission (85 of the 89 correct rows!). The same happens with `NOT (commission > 2500)`: NOT of "unknown" is still "unknown". You must handle NULL explicitly.
+followup: |
+  "Write it a second way." (`COALESCE(commission, 0) <= 2500`, or `commission IS NOT DISTINCT FROM …` style tricks.) "Which version can still use an index on commission?" (The `IS NULL OR …` form; wrapping the column in COALESCE usually cannot.)
+alternatives:
+  - "SELECT id, name, commission FROM employees WHERE dept_id IN (2, 4, 6) AND COALESCE(commission, 0) <= 2500 ORDER BY id"

@@ -1,0 +1,30 @@
+id: ag-005
+title: Headcount and pay by department
+topic: aggregation
+tags:
+- left-join
+- count-column
+- avg
+difficulty: easy
+dataset: hr
+prompt: |
+  HR is preparing the department overview and it must list **every department**, including ones nobody works in yet
+  (Facilities). For each, show the number of employees and the average salary **rounded to 2 decimals**; for an empty department the
+  average stays NULL.
+
+  Return `dept_id`, `name` (the department name), `headcount` and `avg_salary`, ordered by `dept_id`.
+solution_sql: |
+  SELECT d.id AS dept_id, d.name, count(e.id) AS headcount, round(avg(e.salary), 2) AS avg_salary
+  FROM departments d
+  LEFT JOIN employees e ON e.dept_id = d.id
+  GROUP BY d.id, d.name
+  ORDER BY d.id
+compare:
+  order_matters: true
+hints:
+- To keep departments without employees, which table must be on the preserved side of the join?
+- After a LEFT JOIN an empty department still has one row - what does count(*) say, and what does count(e.id) say?
+trap: |
+  Two ways to lose the empty department: an inner `JOIN` drops it, and after a `LEFT JOIN` `COUNT(*)` reports **1** for Facilities, because the single NULL-padded row is still a row. `COUNT(e.id)` counts only real employees (NULLs are ignored) and gives 0.
+followup: |
+  "What does `AVG` return for a department with no employees, and how would you show 0 instead?" (NULL, since there are no values; `coalesce(avg(...), 0)` - but 0 is a lie about salaries, NULL is more honest.)

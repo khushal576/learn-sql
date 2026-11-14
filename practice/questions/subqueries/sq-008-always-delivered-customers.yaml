@@ -1,0 +1,28 @@
+id: sq-008
+title: Customers whose every order arrived
+topic: subqueries
+tags: [not-exists, exists, vacuous-truth, correlated-subquery]
+difficulty: medium
+dataset: ecommerce
+prompt: |
+  Customer care wants to thank the customers who **never had a problem**: those who have **at least one order** and **every one of their orders has status `'delivered'`**. Check **customers 1 to 100**.
+
+  Return `customer_id`, ordered by `customer_id`.
+solution_sql: |
+  SELECT c.id AS customer_id
+  FROM customers c
+  WHERE c.id <= 100
+    AND EXISTS (SELECT 1 FROM orders o WHERE o.customer_id = c.id)
+    AND NOT EXISTS (SELECT 1 FROM orders o WHERE o.customer_id = c.id AND o.status <> 'delivered')
+  ORDER BY c.id
+compare: {order_matters: true}
+hints:
+  - "\"Every order is delivered\" is the same as \"no order that is not delivered\"."
+  - "What does \"every order is delivered\" say about someone who has no orders at all?"
+trap: |
+  "All of them are delivered" is **vacuously true** for a customer with no orders, so a bare `NOT EXISTS (... status <> 'delivered')` also returns the 4 customers in 1-100 who never ordered (63 rows instead of 59). Universal conditions ("for all") need an extra `EXISTS` when the empty set should not count.
+followup: |
+  "Write it with GROUP BY." (`GROUP BY customer_id HAVING count(*) = count(*) FILTER (WHERE status = 'delivered')` - customers without orders never appear, so the vacuous case disappears by itself.) "What does `NOT IN (SELECT ... status <> 'delivered')` risk?" (NULLs in the subquery make it return nothing.)
+alternatives:
+  - |
+    SELECT customer_id FROM orders WHERE customer_id <= 100 GROUP BY customer_id HAVING count(*) = count(*) FILTER (WHERE status = 'delivered') ORDER BY customer_id

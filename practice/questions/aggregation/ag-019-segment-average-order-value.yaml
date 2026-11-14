@@ -1,0 +1,33 @@
+id: ag-019
+title: Average order value per segment
+topic: aggregation
+tags:
+- average-of-averages
+- weighted-average
+- group-by
+difficulty: hard
+dataset: ecommerce
+prompt: |
+  For every customer **segment**, report the **average order value** over all orders of the customers in that segment, any status:
+  total revenue of the segment divided by its number of orders (an order's revenue is the sum of `quantity * unit_price` over its lines).
+  **Round to 2 decimals.**
+
+  Return `segment` and `avg_order_value`, ordered by `segment`.
+solution_sql: |
+  WITH ov AS (
+    SELECT o.id, o.customer_id, sum(i.quantity * i.unit_price) AS value
+    FROM orders o JOIN order_items i ON i.order_id = o.id
+    GROUP BY o.id, o.customer_id)
+  SELECT c.segment, round(sum(ov.value) / count(*), 2) AS avg_order_value
+  FROM ov JOIN customers c ON c.id = ov.customer_id
+  GROUP BY c.segment
+  ORDER BY c.segment
+compare:
+  order_matters: true
+hints:
+- 'Which rows should the average be taken over: customers or orders?'
+- A customer with 66 orders must weigh more than one with 11.
+trap: |
+  **Average of averages.** Averaging each customer's own average treats a customer with 11 orders the same as one with 67, so it is not the segment's average order value (consumer 1685.79 vs the true 1685.72; home_office 1685.45 vs 1685.35). Averages can only be combined weighted by their counts - i.e. go back to the totals: `sum(revenue) / count(orders)`. Also `AVG(quantity * unit_price)` on the joined lines would average lines, not orders.
+followup: |
+  "Why do the two numbers differ so little here but can differ hugely elsewhere?" (Here every customer has a similar order size; with very unequal order counts per group the unweighted mean moves towards the small groups. Simpson's paradox lives here.)

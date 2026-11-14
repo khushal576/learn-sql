@@ -1,0 +1,27 @@
+id: sq-010
+title: Departments paid above the company average
+topic: subqueries
+tags: [having, scalar-subquery, avg]
+difficulty: medium
+dataset: hr
+prompt: |
+  The CFO wants the **departments whose average salary is higher than the average salary of all employees** in the company.
+
+  Return `dept_id`, `name` (the department name) and `avg_salary` (the department's average, rounded to 2 decimals), ordered by `dept_id`.
+solution_sql: |
+  SELECT d.id AS dept_id, d.name, round(avg(e.salary), 2) AS avg_salary
+  FROM departments d JOIN employees e ON e.dept_id = d.id
+  GROUP BY d.id, d.name
+  HAVING avg(e.salary) > (SELECT avg(salary) FROM employees)
+  ORDER BY d.id
+compare: {order_matters: true}
+hints:
+  - "A condition on a group's aggregate goes in `HAVING`; the other side can be a scalar subquery."
+  - "The company average is the average over *employees*."
+trap: |
+  "Company average" means the average of every employee's salary. Averaging the department averages (an `avg` over a `GROUP BY dept_id` derived table) gives every department the same weight regardless of head count; it moves the threshold and adds department 5 to the result (6 rows instead of 5).
+followup: |
+  "Why is `WHERE avg(salary) > ...` an error?" (`WHERE` runs before grouping; aggregates are only available in `HAVING`.) "Does this still work if a department has no employees?" (It disappears with the inner join - which is right, it has no average.)
+alternatives:
+  - |
+    SELECT dept_id, name, avg_salary FROM (SELECT d.id dept_id, d.name, round(avg(e.salary), 2) avg_salary, avg(e.salary) a, avg(avg(e.salary)) OVER () x FROM departments d JOIN employees e ON e.dept_id = d.id GROUP BY d.id, d.name) t WHERE a > (SELECT avg(salary) FROM employees) ORDER BY dept_id

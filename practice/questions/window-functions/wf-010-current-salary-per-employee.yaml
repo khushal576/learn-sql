@@ -1,0 +1,31 @@
+id: wf-010
+title: Current salary of each employee
+topic: window-functions
+tags: [row-number, dedupe, latest-per-group]
+difficulty: medium
+dataset: hr
+prompt: |
+  `salary_history` holds every salary an employee ever had, with the date it became effective. Payroll needs only the **latest** row per employee.
+  For employees **1 to 20**, return `emp_id`, `effective_date`, `salary` of their most recent salary change, ordered by `emp_id`.
+solution_sql: |
+  SELECT emp_id, effective_date, salary FROM (
+    SELECT emp_id, effective_date, salary,
+           row_number() OVER (PARTITION BY emp_id ORDER BY effective_date DESC) AS rn
+    FROM salary_history
+    WHERE emp_id <= 20
+  ) t
+  WHERE rn = 1
+  ORDER BY emp_id
+compare: {order_matters: true}
+hints:
+  - "Number each employee's rows from the newest to the oldest, then keep number 1."
+  - "A window function cannot sit in WHERE: use a subquery or CTE."
+trap: |
+  Ordering ascending (`ORDER BY effective_date` instead of `DESC`) keeps the **oldest** row: the query runs, looks right, and returns the starting salaries. Always sanity-check one employee with several rows by hand.
+followup: |
+  "Why is (emp_id, effective_date) enough to be deterministic here?" (It is the primary key, so no two rows of an employee tie on the date.)
+alternatives:
+  - |
+    SELECT h.emp_id, h.effective_date, h.salary FROM salary_history h
+    WHERE h.emp_id <= 20 AND h.effective_date = (SELECT max(effective_date) FROM salary_history x WHERE x.emp_id = h.emp_id)
+    ORDER BY h.emp_id

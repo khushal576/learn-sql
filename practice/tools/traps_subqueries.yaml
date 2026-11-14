@@ -1,0 +1,48 @@
+sq-001:
+  wrong: SELECT id, name, price FROM products WHERE active AND price > (SELECT avg(price) FROM products) ORDER BY price DESC, id
+  right: SELECT p.id, p.name, p.price FROM products p WHERE p.active AND p.price > (SELECT avg(x.price) FROM products x WHERE x.active) ORDER BY p.price DESC, p.id
+sq-002:
+  wrong: SELECT id, name, dept_id, salary FROM employees WHERE salary > (SELECT avg(salary) FROM employees) ORDER BY id
+  right: SELECT e.id, e.name, e.dept_id, e.salary FROM employees e WHERE e.salary > (SELECT avg(salary) FROM employees WHERE dept_id = e.dept_id) ORDER BY e.id
+sq-003:
+  wrong: SELECT score AS second_highest FROM scores WHERE course_id = 13 AND exam = 'midterm' ORDER BY score DESC LIMIT 1 OFFSET 1
+  right: SELECT max(score) AS second_highest FROM scores WHERE course_id = 13 AND exam = 'midterm' AND score <> (SELECT max(score) FROM scores WHERE course_id = 13 AND exam = 'midterm')
+sq-004:
+  wrong: SELECT c.id AS customer_id FROM customers c WHERE c.id <= 100 AND EXISTS (SELECT 1 FROM orders o WHERE o.customer_id = c.id AND o.order_date >= '2023-01-01' AND o.order_date < '2023-02-01') AND NOT EXISTS (SELECT 1 FROM orders o WHERE o.order_date >= '2023-02-01' AND o.order_date < '2023-03-01') ORDER BY 1
+  right: SELECT id AS customer_id FROM customers WHERE id <= 100 AND id IN (SELECT customer_id FROM orders WHERE order_date BETWEEN '2023-01-01' AND '2023-01-31') AND id NOT IN (SELECT customer_id FROM orders WHERE order_date BETWEEN '2023-02-01' AND '2023-02-28') ORDER BY 1
+sq-005:
+  wrong: SELECT id, name, salary FROM employees WHERE salary = (SELECT salary FROM employees WHERE salary >= 60000 ORDER BY salary LIMIT 1 OFFSET 2) ORDER BY id
+  right: SELECT e.id, e.name, e.salary FROM employees e WHERE e.salary >= 60000 AND (SELECT count(DISTINCT x.salary) FROM employees x WHERE x.salary >= 60000 AND x.salary < e.salary) = 2 ORDER BY e.id
+sq-006:
+  wrong: WITH ov AS (SELECT o.id AS order_id, o.customer_id, sum(i.quantity * i.unit_price) AS order_value FROM orders o JOIN order_items i ON i.order_id = o.id GROUP BY o.id, o.customer_id) SELECT order_id, customer_id, order_value FROM ov WHERE customer_id <= 30 AND order_value > (SELECT avg(order_value) FROM ov) ORDER BY order_id
+  right: SELECT o.id AS order_id, o.customer_id, v.s AS order_value FROM orders o JOIN LATERAL (SELECT sum(quantity * unit_price) s FROM order_items WHERE order_id = o.id) v ON true WHERE o.customer_id <= 30 AND v.s > (SELECT avg(w.s) FROM orders o2 JOIN LATERAL (SELECT sum(quantity * unit_price) s FROM order_items WHERE order_id = o2.id) w ON true WHERE o2.customer_id = o.customer_id) ORDER BY o.id
+sq-007:
+  wrong: SELECT id, account_id, -amount AS spend FROM transactions WHERE kind = 'purchase' AND account_id <= 20 AND -amount > (SELECT avg(-amount) FROM transactions WHERE kind = 'purchase') ORDER BY id
+  right: SELECT t.id, t.account_id, abs(t.amount) AS spend FROM transactions t WHERE t.kind = 'purchase' AND t.account_id <= 20 AND abs(t.amount) > (SELECT avg(abs(amount)) FROM transactions WHERE kind = 'purchase' AND account_id = t.account_id) ORDER BY t.id
+sq-008:
+  wrong: SELECT c.id AS customer_id FROM customers c WHERE c.id <= 100 AND NOT EXISTS (SELECT 1 FROM orders o WHERE o.customer_id = c.id AND o.status <> 'delivered') ORDER BY c.id
+  right: SELECT c.id AS customer_id FROM customers c WHERE c.id <= 100 AND c.id IN (SELECT customer_id FROM orders) AND c.id NOT IN (SELECT customer_id FROM orders WHERE status <> 'delivered') ORDER BY c.id
+sq-009:
+  wrong: SELECT s.id AS student_id, s.name FROM students s WHERE s.id BETWEEN 251 AND 300 AND NOT EXISTS (SELECT 1 FROM scores m WHERE m.student_id = s.id AND m.exam = 'midterm' AND m.score <= (SELECT avg(a.score) FROM scores a WHERE a.course_id = m.course_id AND a.exam = 'midterm')) ORDER BY s.id
+  right: SELECT s.id AS student_id, s.name FROM students s WHERE s.id BETWEEN 251 AND 300 AND s.id IN (SELECT student_id FROM scores WHERE exam = 'midterm') AND s.id NOT IN (SELECT m.student_id FROM scores m WHERE m.exam = 'midterm' AND m.score <= (SELECT avg(score) FROM scores WHERE exam = 'midterm' AND course_id = m.course_id)) ORDER BY s.id
+sq-010:
+  wrong: SELECT d.id AS dept_id, d.name, round(avg(e.salary), 2) AS avg_salary FROM departments d JOIN employees e ON e.dept_id = d.id GROUP BY d.id, d.name HAVING avg(e.salary) > (SELECT avg(a) FROM (SELECT avg(salary) a FROM employees GROUP BY dept_id) z) ORDER BY d.id
+  right: SELECT dept_id, name, avg_salary FROM (SELECT d.id AS dept_id, d.name, round(avg(e.salary), 2) AS avg_salary, avg(e.salary) AS raw FROM departments d JOIN employees e ON e.dept_id = d.id GROUP BY d.id, d.name) t WHERE raw > (SELECT avg(salary) FROM employees) ORDER BY dept_id
+sq-011:
+  wrong: SELECT c.id AS customer_id FROM customers c WHERE c.id <= 200 AND EXISTS (SELECT 1 FROM orders o WHERE o.customer_id = c.id AND o.status = 'cancelled') ORDER BY c.id
+  right: SELECT c.id AS customer_id FROM customers c JOIN orders o ON o.customer_id = c.id WHERE c.id <= 200 AND o.status = 'cancelled' AND NOT EXISTS (SELECT 1 FROM orders n WHERE n.customer_id = c.id AND (n.order_date, n.id) > (o.order_date, o.id)) ORDER BY c.id
+sq-012:
+  wrong: SELECT account_id FROM transactions WHERE tx_date < '2024-10-01' GROUP BY account_id HAVING max(tx_date) < '2024-10-01' ORDER BY account_id
+  right: SELECT account_id FROM transactions GROUP BY account_id HAVING min(tx_date) < '2024-10-01' AND max(tx_date) < '2024-10-01' ORDER BY account_id
+sq-013:
+  wrong: SELECT id, name, price FROM products WHERE price > ANY (SELECT p.price FROM products p JOIN categories c ON c.id = p.category_id WHERE c.name = 'Books') ORDER BY price DESC, id
+  right: SELECT p.id, p.name, p.price FROM products p WHERE NOT EXISTS (SELECT 1 FROM products b JOIN categories c ON c.id = b.category_id WHERE c.name = 'Books' AND b.price >= p.price) ORDER BY p.price DESC, p.id
+sq-014:
+  wrong: SELECT customer_id, orders FROM (SELECT customer_id, count(*) AS orders FROM orders GROUP BY customer_id ORDER BY orders DESC, customer_id LIMIT 10) t ORDER BY customer_id
+  right: SELECT customer_id, orders FROM (SELECT customer_id, count(*) orders, rank() OVER (ORDER BY count(*) DESC) r FROM orders GROUP BY customer_id) t WHERE r <= 10 ORDER BY customer_id
+sq-015:
+  wrong: SELECT DISTINCT s.id AS student_id, s.name, round((SELECT avg(score) FROM scores WHERE student_id = s.id), 2) AS avg_score FROM students s JOIN scores sc ON sc.student_id = s.id WHERE s.grade = 12 AND sc.score > (SELECT avg(x.score) FROM scores x JOIN students t ON t.id = x.student_id WHERE t.grade = 12) ORDER BY s.id
+  right: SELECT s.id AS student_id, s.name, round(a.v, 2) AS avg_score FROM students s JOIN (SELECT student_id, avg(score) v FROM scores GROUP BY student_id) a ON a.student_id = s.id WHERE s.grade = 12 AND a.v > (SELECT avg(x.score) FROM scores x JOIN students t ON t.id = x.student_id WHERE t.grade = 12) ORDER BY s.id
+sq-016:
+  wrong: SELECT DISTINCT c.id AS customer_id, c.name FROM customers c JOIN loans l ON l.customer_id = c.id JOIN accounts a ON a.customer_id = c.id WHERE a.type <> 'savings' ORDER BY c.id
+  right: SELECT c.id AS customer_id, c.name FROM customers c WHERE c.id IN (SELECT customer_id FROM loans) AND c.id NOT IN (SELECT customer_id FROM accounts WHERE type = 'savings') ORDER BY c.id

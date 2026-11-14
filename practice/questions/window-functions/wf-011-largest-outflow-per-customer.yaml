@@ -1,0 +1,35 @@
+id: wf-011
+title: Each customer's largest single outflow
+topic: window-functions
+tags: [rank, ties, top-n-per-group]
+difficulty: medium
+dataset: bank
+prompt: |
+  Fraud analysts look at the biggest single money-out event of each customer, across **all** their accounts.
+  Consider only transactions of kind `withdrawal` or `purchase` (`amount` is negative for them): the largest outflow is the **most negative** amount.
+  For customers **1 to 40**, return `customer_id`, `tx_id` (transaction `id`) and `amount` of that transaction.
+  If several transactions tie for the largest outflow, return **all** of them. Order by `customer_id`, then `tx_id`.
+solution_sql: |
+  SELECT customer_id, tx_id, amount FROM (
+    SELECT a.customer_id, t.id AS tx_id, t.amount,
+           rank() OVER (PARTITION BY a.customer_id ORDER BY t.amount) AS rnk
+    FROM transactions t JOIN accounts a ON a.id = t.account_id
+    WHERE a.customer_id <= 40 AND t.kind IN ('withdrawal', 'purchase')
+  ) x
+  WHERE rnk = 1
+  ORDER BY customer_id, tx_id
+compare: {order_matters: true}
+hints:
+  - "The most negative amount sorts FIRST in ascending order."
+  - "Which ranking function keeps all rows that tie for first place?"
+trap: |
+  `ROW_NUMBER() = 1` returns exactly one row per customer, silently dropping the tied transaction: here one customer has two transactions with the same largest outflow, so ROW_NUMBER returns 40 rows instead of 41. Another slip is sorting descending, which returns the smallest outflow.
+followup: |
+  "What if you also wanted the second-largest outflow?" (RANK <= 2 in the same query, remembering ties can make it return more rows.)
+alternatives:
+  - |
+    WITH o AS (
+      SELECT a.customer_id, t.id AS tx_id, t.amount FROM transactions t JOIN accounts a ON a.id = t.account_id
+      WHERE a.customer_id <= 40 AND t.kind IN ('withdrawal', 'purchase'))
+    SELECT customer_id, tx_id, amount FROM o
+    WHERE amount = (SELECT min(amount) FROM o o2 WHERE o2.customer_id = o.customer_id) ORDER BY 1, 2

@@ -1,0 +1,28 @@
+id: ag-009
+title: Net cash flow per month
+topic: aggregation
+tags:
+- date_trunc
+- group-by
+- order-by
+difficulty: medium
+dataset: bank
+prompt: |
+  The CFO wants the bank's **net cash flow** for each month of 2024: the sum of all `amount`s (signed - deposits positive,
+  payments negative) over every account.
+
+  Return `month` (the first day of the month, as a **date**) and `net_cash_flow`, ordered chronologically.
+solution_sql: |
+  SELECT date_trunc('month', tx_date)::date AS month, sum(amount) AS net_cash_flow
+  FROM transactions
+  GROUP BY 1
+  ORDER BY 1
+compare:
+  order_matters: true
+hints:
+- You need a value that identifies the month AND sorts in time order.
+- '`date_trunc(''month'', d)` keeps the order; a month *name* does not.'
+trap: |
+  Grouping by the month *name* (`to_char(tx_date, 'Month')`) gives text: it sorts alphabetically (April, August, December ...), and the column is no longer a date. It would also silently merge January 2024 with January 2025 once the data spans two years. `date_trunc('month', ...)` keeps real dates that sort and group correctly.
+followup: |
+  "Add a running total of the cash flow across the months." (`sum(sum(amount)) OVER (ORDER BY month)` - a window over the monthly result.)

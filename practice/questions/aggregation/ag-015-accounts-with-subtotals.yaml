@@ -1,0 +1,32 @@
+id: ag-015
+title: Account counts with subtotals
+topic: aggregation
+tags:
+- rollup
+- grouping-sets
+- subtotal
+difficulty: hard
+dataset: bank
+prompt: |
+  The bank's board report counts the **accounts per type and status**, with a **subtotal row per type** and a **grand total
+  row**. In the subtotal rows `status` is NULL; in the grand total both `type` and `status` are NULL.
+
+  Return `type`, `status` and `accounts`. The order of the rows does not matter.
+solution_sql: |
+  SELECT type, status, count(*) AS accounts
+  FROM accounts
+  GROUP BY ROLLUP (type, status)
+compare:
+  order_matters: false
+hints:
+- Standard GROUP BY gives you the detail rows only. Which clause adds the higher levels?
+- '`ROLLUP (a, b)` = detail, subtotal per a, grand total.'
+trap: |
+  A plain `GROUP BY type, status` returns the detail only - no subtotals and no grand total. Hand-built `UNION ALL` versions are the next-best, but tend to forget the grand total row (or double-count) and scan the table repeatedly; `ROLLUP` / `GROUPING SETS` produce all levels in one pass.
+followup: |
+  "A real NULL status would look like a subtotal row - how do you tell them apart?" (`GROUPING(status)` returns 1 for the rolled-up level and 0 otherwise.)
+alternatives:
+- |
+  SELECT type, status, count(*) AS accounts FROM accounts GROUP BY type, status
+  UNION ALL SELECT type, NULL, count(*) FROM accounts GROUP BY type
+  UNION ALL SELECT NULL, NULL, count(*) FROM accounts

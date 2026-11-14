@@ -1,0 +1,31 @@
+id: wf-004
+title: Days since the customer's previous order
+topic: window-functions
+tags: [lag, partition-by]
+difficulty: easy
+dataset: ecommerce
+prompt: |
+  The retention team studies how often customers come back. For customers **1 to 5**, list every order with the date of the **previous order of the same customer**
+  and the number of days between the two. A customer's first order has no previous order: both values are NULL.
+  Return `customer_id`, `order_id`, `order_date`, `prev_order_date`, `days_since`, ordered by `customer_id`, then `order_date`.
+solution_sql: |
+  SELECT customer_id, id AS order_id, order_date,
+         lag(order_date) OVER (PARTITION BY customer_id ORDER BY order_date, id) AS prev_order_date,
+         order_date - lag(order_date) OVER (PARTITION BY customer_id ORDER BY order_date, id) AS days_since
+  FROM orders
+  WHERE customer_id <= 5
+  ORDER BY customer_id, order_date, id
+compare: {order_matters: true}
+hints:
+  - "LAG(col) looks one row back inside the window order."
+  - "date minus date gives an integer number of days."
+trap: |
+  `LAG` without `PARTITION BY customer_id` reaches across customers: the first order of customer 2 would show the last order of customer 1 as its "previous" one, and the NULLs disappear.
+followup: |
+  "Average gap in days per customer?" (avg() of days_since in an outer query; the NULL first rows are ignored automatically.)
+alternatives:
+  - |
+    SELECT o.customer_id, o.id AS order_id, o.order_date, p.d AS prev_order_date, o.order_date - p.d AS days_since
+    FROM orders o
+    LEFT JOIN LATERAL (SELECT max(order_date) AS d FROM orders x WHERE x.customer_id = o.customer_id AND x.order_date < o.order_date) p ON true
+    WHERE o.customer_id <= 5 ORDER BY 1, 3, 2

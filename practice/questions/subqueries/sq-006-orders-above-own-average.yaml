@@ -1,0 +1,32 @@
+id: sq-006
+title: Unusually big orders per customer
+topic: subqueries
+tags: [correlated-subquery, derived-table, avg]
+difficulty: medium
+dataset: ecommerce
+prompt: |
+  The fraud team flags an order when its **order value** (sum of `quantity * unit_price` over its lines) is **higher than that same customer's average order value**. Check **customers 1 to 30** only; their average is taken over all of their orders.
+
+  Return `order_id`, `customer_id`, `order_value`, ordered by `order_id`.
+solution_sql: |
+  WITH ov AS (
+    SELECT o.id AS order_id, o.customer_id, sum(i.quantity * i.unit_price) AS order_value
+    FROM orders o JOIN order_items i ON i.order_id = o.id
+    GROUP BY o.id, o.customer_id
+  )
+  SELECT order_id, customer_id, order_value
+  FROM ov
+  WHERE customer_id <= 30
+    AND order_value > (SELECT avg(x.order_value) FROM ov x WHERE x.customer_id = ov.customer_id)
+  ORDER BY order_id
+compare: {order_matters: true}
+hints:
+  - "First get one number per order; the average is then taken over those numbers, not over order lines."
+  - "The comparison value differs per customer: correlate on `customer_id`."
+trap: |
+  Comparing with one global average of order values (432 flagged orders instead of 386) treats a small buyer's usual basket as normal for everyone: customers who always spend a lot get all their orders flagged, and big-order outliers of frugal customers slip through. The baseline must be *that customer's* own average, so the subquery is correlated.
+followup: |
+  "Do it without a correlated subquery." (`avg(order_value) OVER (PARTITION BY customer_id)` in a derived table, then filter.) "Why average the per-order totals and not `avg(quantity*unit_price)` of the lines?" (That is the average *line* value, a different - and smaller - number.)
+alternatives:
+  - |
+    SELECT order_id, customer_id, order_value FROM (SELECT o.id order_id, o.customer_id, sum(i.quantity*i.unit_price) order_value, avg(sum(i.quantity*i.unit_price)) OVER (PARTITION BY o.customer_id) a FROM orders o JOIN order_items i ON i.order_id = o.id GROUP BY o.id, o.customer_id) t WHERE customer_id <= 30 AND order_value > a ORDER BY order_id

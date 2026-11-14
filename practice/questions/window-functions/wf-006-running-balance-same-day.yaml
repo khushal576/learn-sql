@@ -1,0 +1,30 @@
+id: wf-006
+title: Running balance of an account
+topic: window-functions
+tags: [running-total, frame, ties]
+difficulty: medium
+dataset: bank
+prompt: |
+  Customer support needs a statement view: for accounts **1 to 3**, list every transaction with the balance after it
+  (the running sum of the signed `amount`s from the account's first transaction up to and including this one).
+  Several transactions of an account happen on the same `tx_date`; within a day they are ordered by `id`.
+  Return `account_id`, `tx_id` (the transaction `id`), `tx_date`, `amount`, `balance`, ordered by `account_id`, then `tx_id`.
+solution_sql: |
+  SELECT account_id, id AS tx_id, tx_date, amount,
+         sum(amount) OVER (PARTITION BY account_id ORDER BY tx_date, id) AS balance
+  FROM transactions
+  WHERE account_id <= 3
+  ORDER BY account_id, id
+compare: {order_matters: true}
+hints:
+  - "Put every ordering column inside the OVER clause, not only the date."
+  - "Two rows that tie on the ORDER BY columns are 'peers' for the default frame."
+trap: |
+  With `ORDER BY tx_date` alone the default frame is `RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW`, which includes all **peers** (same-day rows). Both transactions of a day then show the same balance, the one after the whole day, and the first row of the pair is wrong. Add the `id` tie-break (or write `ROWS UNBOUNDED PRECEDING`).
+followup: |
+  "Why does a plain running total on a unique date column work, then?" (No peers exist, so RANGE and ROWS give the same result.) "Which is faster, RANGE or ROWS?" (ROWS: no peer lookup.)
+alternatives:
+  - |
+    SELECT account_id, id AS tx_id, tx_date, amount,
+           sum(amount) OVER (PARTITION BY account_id ORDER BY tx_date, id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS balance
+    FROM transactions WHERE account_id <= 3 ORDER BY 1, 2

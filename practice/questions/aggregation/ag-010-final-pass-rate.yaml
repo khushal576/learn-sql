@@ -1,0 +1,30 @@
+id: ag-010
+title: Final-exam pass rate per course
+topic: aggregation
+tags:
+- percentage
+- integer-division
+- filter
+difficulty: medium
+dataset: school
+prompt: |
+  A final exam is passed with a score of **60 or more**. For every course that has final-exam scores (`exam = 'final'`),
+  compute the **pass rate**: the percentage of finals passed, between 0 and 100, **rounded to 1 decimal**.
+
+  Return `course_id` and `pass_rate`, ordered by `pass_rate` descending, then `course_id`.
+solution_sql: |
+  SELECT course_id,
+         round(100.0 * count(*) FILTER (WHERE score >= 60) / count(*), 1) AS pass_rate
+  FROM scores
+  WHERE exam = 'final'
+  GROUP BY course_id
+  ORDER BY pass_rate DESC, course_id
+compare:
+  order_matters: true
+hints:
+- The numerator and the denominator come from the same rows - count only the passes in the numerator.
+- What type does `count(*) / count(*)` have, and what does 7 / 11 give in integer arithmetic?
+trap: |
+  **Integer division.** `count(...) / count(*)` divides two integers, so 7/11 becomes 0 and 11/11 becomes 1 - every rate shows as 0 or 100. Force decimal arithmetic by multiplying with `100.0` (or casting) *before* dividing. Note also that `WHERE score >= 60` would remove the failures from the denominator and make every rate 100 %.
+followup: |
+  "Pass rate per teacher instead?" (join courses; group by teacher - but pool the scores, do not average the course rates.)

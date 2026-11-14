@@ -1,0 +1,167 @@
+# aggregation batch ag-002..ag-020
+ag-002:
+  wrong: |
+    SELECT status, count(*) AS orders FROM orders GROUP BY status ORDER BY orders DESC, status DESC
+  right: |
+    SELECT status, count(*) AS orders FROM orders GROUP BY 1 ORDER BY 2 DESC, 1 ASC
+ag-003:
+  wrong: |
+    SELECT a.type, sum(t.amount) AS money_in, -sum(t.amount) AS money_out
+    FROM transactions t JOIN accounts a ON a.id = t.account_id
+    WHERE t.tx_date >= '2024-03-01' AND t.tx_date < '2024-04-01' AND t.amount > 0
+    GROUP BY a.type ORDER BY a.type
+  right: |
+    SELECT a.type, sum(CASE WHEN t.amount > 0 THEN t.amount END) AS money_in, sum(CASE WHEN t.amount < 0 THEN -t.amount END) AS money_out
+    FROM accounts a JOIN transactions t ON t.account_id = a.id
+    WHERE t.tx_date BETWEEN '2024-03-01' AND '2024-03-31'
+    GROUP BY a.type ORDER BY a.type
+ag-004:
+  wrong: |
+    SELECT course_id, count(*) AS finals, round(avg(score), 2) AS avg_final
+    FROM scores GROUP BY course_id HAVING count(*) >= 20 ORDER BY course_id
+  right: |
+    SELECT course_id, finals, avg_final FROM (
+      SELECT course_id, count(*) AS finals, round(avg(score), 2) AS avg_final FROM scores WHERE exam = 'final' GROUP BY course_id) t
+    WHERE finals >= 20 ORDER BY course_id
+ag-005:
+  wrong: |
+    SELECT d.id AS dept_id, d.name, count(*) AS headcount, round(avg(e.salary), 2) AS avg_salary
+    FROM departments d LEFT JOIN employees e ON e.dept_id = d.id GROUP BY d.id, d.name ORDER BY d.id
+  right: |
+    SELECT d.id AS dept_id, d.name, (SELECT count(*) FROM employees e WHERE e.dept_id = d.id) AS headcount,
+           (SELECT round(avg(e.salary), 2) FROM employees e WHERE e.dept_id = d.id) AS avg_salary
+    FROM departments d ORDER BY d.id
+ag-006:
+  wrong: |
+    SELECT round(avg(i.quantity * i.unit_price), 2) AS aov
+    FROM orders o JOIN order_items i ON i.order_id = o.id
+    WHERE o.status = 'delivered' AND o.order_date >= '2023-01-01' AND o.order_date < '2024-01-01'
+  right: |
+    SELECT round(avg(v), 2) AS aov FROM (
+      SELECT o.id, sum(i.quantity * i.unit_price) AS v FROM orders o JOIN order_items i ON i.order_id = o.id
+      WHERE o.status = 'delivered' AND extract(year FROM o.order_date) = 2023 GROUP BY o.id) t
+ag-007:
+  wrong: |
+    SELECT c.name AS category, sum(i.quantity) AS units, round(sum(i.quantity) / (SELECT sum(quantity) FROM order_items) * 100, 2) AS pct_of_units
+    FROM order_items i JOIN products p ON p.id = i.product_id JOIN categories c ON c.id = p.category_id
+    GROUP BY c.name ORDER BY units DESC, category
+  right: |
+    SELECT c.name AS category, sum(i.quantity) AS units,
+           round(sum(i.quantity) * 100.0 / (SELECT sum(quantity) FROM order_items), 2) AS pct_of_units
+    FROM order_items i JOIN products p ON p.id = i.product_id JOIN categories c ON c.id = p.category_id
+    GROUP BY c.id, c.name ORDER BY 2 DESC, 1
+ag-008:
+  wrong: |
+    SELECT o.customer_id, sum(i.quantity * i.unit_price) AS total_spend
+    FROM orders o JOIN order_items i ON i.order_id = o.id
+    GROUP BY o.customer_id
+    HAVING sum(i.quantity * i.unit_price) > (SELECT avg(quantity * unit_price) FROM order_items)
+    ORDER BY total_spend DESC, customer_id
+  right: |
+    SELECT customer_id, total_spend FROM (
+      SELECT o.customer_id, sum(i.quantity * i.unit_price) AS total_spend, avg(sum(i.quantity * i.unit_price)) OVER () AS av
+      FROM orders o JOIN order_items i ON i.order_id = o.id GROUP BY o.customer_id) t
+    WHERE total_spend > av ORDER BY total_spend DESC, customer_id
+ag-009:
+  wrong: |
+    SELECT to_char(tx_date, 'Month') AS month, sum(amount) AS net_cash_flow
+    FROM transactions GROUP BY 1 ORDER BY 1
+  right: |
+    SELECT make_date(extract(year FROM tx_date)::int, extract(month FROM tx_date)::int, 1) AS month, sum(amount) AS net_cash_flow
+    FROM transactions WHERE tx_date >= '2024-01-01' AND tx_date < '2025-01-01' GROUP BY 1 ORDER BY 1
+ag-010:
+  wrong: |
+    SELECT course_id, round(count(CASE WHEN score >= 60 THEN 1 END) * 100 / count(*), 1) AS pass_rate
+    FROM scores WHERE exam = 'final' GROUP BY course_id ORDER BY pass_rate DESC, course_id
+  right: |
+    SELECT course_id, round(avg((score >= 60)::int) * 100, 1) AS pass_rate
+    FROM scores WHERE exam = 'final' GROUP BY course_id ORDER BY 2 DESC, 1
+ag-011:
+  wrong: |
+    SELECT n AS orders_placed, count(*) AS customers
+    FROM (SELECT customer_id, count(*) AS n FROM orders GROUP BY customer_id) t GROUP BY n ORDER BY n
+  right: |
+    SELECT coalesce(o.n, 0) AS orders_placed, count(*) AS customers
+    FROM customers c LEFT JOIN (SELECT customer_id, count(*) AS n FROM orders GROUP BY customer_id) o ON o.customer_id = c.id
+    GROUP BY 1 ORDER BY 1
+ag-012:
+  wrong: |
+    SELECT DISTINCT ON (course_id) course_id, student_id, score
+    FROM scores WHERE exam = 'midterm' ORDER BY course_id, score DESC, student_id
+  right: |
+    SELECT course_id, student_id, score FROM (
+      SELECT course_id, student_id, score, rank() OVER (PARTITION BY course_id ORDER BY score DESC) AS rk
+      FROM scores WHERE exam = 'midterm') t
+    WHERE rk = 1 ORDER BY course_id, student_id
+ag-013:
+  wrong: |
+    SELECT customer_id FROM accounts GROUP BY customer_id HAVING count(DISTINCT type) = 3 ORDER BY customer_id
+  right: |
+    SELECT customer_id FROM accounts GROUP BY customer_id
+    HAVING count(DISTINCT type) FILTER (WHERE status = 'open') = 3 ORDER BY customer_id
+ag-014:
+  wrong: |
+    SELECT date_trunc('month', order_date)::date AS month,
+           count(*) FILTER (WHERE status = 'delivered') AS delivered,
+           count(*) FILTER (WHERE status = 'returned')  AS returned,
+           count(*) FILTER (WHERE status = 'cancelled') AS cancelled,
+           count(*) FILTER (WHERE status = 'placed')    AS other
+    FROM orders WHERE order_date >= '2023-01-01' AND order_date < '2024-01-01' GROUP BY 1 ORDER BY 1
+  right: |
+    SELECT date_trunc('month', order_date)::date AS month,
+           sum((status = 'delivered')::int) AS delivered, sum((status = 'returned')::int) AS returned,
+           sum((status = 'cancelled')::int) AS cancelled, sum((status IN ('placed', 'shipped'))::int) AS other
+    FROM orders WHERE extract(year FROM order_date) = 2023 GROUP BY 1 ORDER BY 1
+ag-015:
+  wrong: |
+    SELECT type, status, count(*) AS accounts FROM accounts GROUP BY type, status
+  right: |
+    SELECT type, status, count(*) AS accounts FROM accounts GROUP BY GROUPING SETS ((type, status), (type), ())
+ag-016:
+  wrong: |
+    SELECT c.country, round(avg(ov.value), 2) AS median_order_value, round(avg(ov.value), 2) AS avg_order_value
+    FROM (SELECT o.id, o.customer_id, sum(i.quantity * i.unit_price) AS value FROM orders o JOIN order_items i ON i.order_id = o.id
+          WHERE o.status = 'delivered' GROUP BY o.id, o.customer_id) ov
+    JOIN customers c ON c.id = ov.customer_id GROUP BY c.country ORDER BY c.country
+  right: |
+    SELECT c.country,
+           round(percentile_cont(0.5) WITHIN GROUP (ORDER BY t.v)::numeric, 2) AS median_order_value,
+           round(avg(t.v), 2) AS avg_order_value
+    FROM customers c
+    JOIN (SELECT o.customer_id, sum(i.quantity * i.unit_price) AS v
+          FROM orders o JOIN order_items i ON i.order_id = o.id WHERE o.status = 'delivered' GROUP BY o.id, o.customer_id) t ON t.customer_id = c.id
+    GROUP BY c.country ORDER BY c.country
+ag-017:
+  wrong: |
+    WITH per_customer AS (SELECT customer_id, count(*) AS n FROM orders WHERE order_date >= '2023-01-01' AND order_date < '2023-04-01' GROUP BY customer_id)
+    SELECT round(100.0 * count(*) FILTER (WHERE n >= 2) / (SELECT count(*) FROM customers), 1) AS repeat_rate FROM per_customer
+  right: |
+    SELECT round(100.0 * count(DISTINCT customer_id) FILTER (WHERE n >= 2) / count(DISTINCT customer_id), 1) AS repeat_rate FROM (
+      SELECT customer_id, count(*) OVER (PARTITION BY customer_id) AS n FROM orders
+      WHERE order_date BETWEEN '2023-01-01' AND '2023-03-31') t
+ag-018:
+  wrong: |
+    SELECT account_id, sum(amount) FILTER (WHERE kind = 'fee') AS fees, sum(amount) FILTER (WHERE kind = 'deposit') AS deposits
+    FROM transactions GROUP BY account_id
+    HAVING sum(amount) FILTER (WHERE kind = 'fee') > 0.01 * sum(amount) FILTER (WHERE kind = 'deposit') ORDER BY account_id
+  right: |
+    SELECT account_id, fees, deposits FROM (
+      SELECT account_id, -sum(CASE WHEN kind = 'fee' THEN amount END) AS fees, sum(CASE WHEN kind = 'deposit' THEN amount END) AS deposits
+      FROM transactions GROUP BY account_id) t
+    WHERE fees > deposits / 100 ORDER BY account_id
+ag-019:
+  wrong: |
+    WITH ov AS (SELECT o.id, o.customer_id, sum(i.quantity * i.unit_price) AS value FROM orders o JOIN order_items i ON i.order_id = o.id GROUP BY o.id, o.customer_id),
+    pc AS (SELECT customer_id, avg(value) AS a FROM ov GROUP BY customer_id)
+    SELECT c.segment, round(avg(pc.a), 2) AS avg_order_value FROM pc JOIN customers c ON c.id = pc.customer_id GROUP BY c.segment ORDER BY c.segment
+  right: |
+    SELECT c.segment, round(avg(t.v), 2) AS avg_order_value
+    FROM customers c JOIN (SELECT o.customer_id, sum(i.quantity * i.unit_price) AS v FROM orders o JOIN order_items i ON i.order_id = o.id GROUP BY o.id, o.customer_id) t ON t.customer_id = c.id
+    GROUP BY c.segment ORDER BY c.segment
+ag-020:
+  wrong: |
+    SELECT DISTINCT account_id FROM transactions
+    WHERE tx_date >= '2024-01-01' AND tx_date < '2024-04-01' AND amount > 0 ORDER BY account_id
+  right: |
+    SELECT account_id FROM transactions WHERE tx_date BETWEEN '2024-01-01' AND '2024-03-31'
+    GROUP BY account_id HAVING bool_and(amount > 0) ORDER BY account_id

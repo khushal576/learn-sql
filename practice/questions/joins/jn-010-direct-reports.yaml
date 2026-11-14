@@ -1,0 +1,24 @@
+id: jn-010
+title: Direct reports per person
+topic: joins
+tags: [self-join, left-join, count-star-vs-count-col]
+difficulty: medium
+dataset: hr
+prompt: |
+  For the **first 40 employees** (`id` 1 to 40) show how many **direct reports** each has. People with nobody
+  reporting to them must show `0`.
+
+  Return `id`, `name` and `direct_reports`, ordered by `id`.
+solution_sql: |
+  SELECT m.id, m.name, count(r.id) AS direct_reports
+  FROM employees m LEFT JOIN employees r ON r.manager_id = m.id
+  WHERE m.id <= 40
+  GROUP BY m.id, m.name
+  ORDER BY m.id
+compare: {order_matters: true}
+hints:
+  - "A LEFT JOIN gives a person with no reports exactly one row, full of NULLs."
+trap: |
+  `COUNT(*)` counts that single all-NULL row, so everyone without reports shows **1** instead of 0 (ten employees here). `COUNT(r.id)` counts only real matches. Rule of thumb: after a LEFT JOIN, count a column from the optional side.
+followup: |
+  "Include the total headcount of the whole team under each manager, not just direct reports." (A recursive CTE — or a closure table — your chapter 9.)

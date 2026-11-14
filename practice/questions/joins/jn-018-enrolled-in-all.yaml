@@ -1,0 +1,35 @@
+id: jn-018
+title: Students taking ALL of a teacher's courses
+topic: joins
+tags: [relational-division, having, count-distinct]
+difficulty: hard
+dataset: school
+prompt: |
+  Ms. Okoye (**teacher 3**) wants a thank-you list: the students who are **enrolled in every course she teaches**
+  (enrollments with status `dropped` don't count as enrolled).
+
+  Return `student_id` and `name`, ordered by `student_id`.
+solution_sql: |
+  SELECT s.id AS student_id, s.name
+  FROM students s
+  JOIN enrollments e ON e.student_id = s.id
+  JOIN courses c ON c.id = e.course_id
+  WHERE c.teacher_id = 3 AND e.status <> 'dropped'
+  GROUP BY s.id, s.name
+  HAVING count(DISTINCT c.id) = (SELECT count(*) FROM courses WHERE teacher_id = 3)
+  ORDER BY s.id
+compare: {order_matters: true}
+hints:
+  - "Filter to her courses, group by student, and compare the number of courses a student has with the number she teaches."
+  - "Don't hard-code the number of courses."
+trap: |
+  This is **relational division** ("for ALL"). Without the `HAVING` count you get students in **any** of her courses (the filter alone says "at least one"). Hard-coding `= 2` works today and breaks the day she teaches a third course; and forgetting to exclude `dropped` counts students who left.
+followup: |
+  "Write it with NOT EXISTS." (Students for whom there is NO course of hers without an enrollment — the double-negative version, also NULL-safe.) "Which students are in all of her courses OR dropped one?" (Change the filter, not the structure.)
+alternatives:
+  - |
+    SELECT s.id AS student_id, s.name FROM students s
+    WHERE NOT EXISTS (
+      SELECT 1 FROM courses c WHERE c.teacher_id = 3 AND NOT EXISTS (
+        SELECT 1 FROM enrollments e WHERE e.student_id = s.id AND e.course_id = c.id AND e.status <> 'dropped'))
+    ORDER BY s.id
