@@ -1,0 +1,25 @@
+id: ja-002
+title: Everyone who joined the beta
+topic: json-arrays
+tags: [arrays, any, case-sensitivity]
+difficulty: easy
+dataset: events
+prompt: |
+  Customer success is inviting the **beta testers** to a webinar. The `users.tags` array was filled by hand, so the tag appears both as `beta` and as `Beta`.
+
+  Return the `id` of every user who has the beta tag **in any capitalisation**, ordered by `id`.
+solution_sql: |
+  SELECT id
+  FROM users
+  WHERE EXISTS (SELECT 1 FROM unnest(tags) AS t WHERE lower(t) = 'beta')
+  ORDER BY id
+compare: {order_matters: true}
+hints:
+  - "Array membership with `= ANY(...)` is an exact comparison. What must you do to every element first?"
+trap: |
+  `'beta' = ANY(tags)` is case-sensitive: it finds 130 users and silently misses the 33 who were tagged `Beta`. Normalise each element (`lower(t)`) before comparing, or normalise the whole array.
+followup: |
+  "How would you fix the data so that this stays simple?" (Normalise the tags at write time - a CHECK or trigger, or store tags in a separate table with a unique lower-case name.)
+alternatives:
+  - |
+    SELECT id FROM users WHERE lower(tags::text)::text[] @> ARRAY['beta'] ORDER BY id

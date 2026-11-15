@@ -1,0 +1,22 @@
+id: mk-032
+title: Last event of every pro user
+topic: mock-interviews
+tags: [lateral, row-number, ties, top-1-per-group]
+difficulty: medium
+dataset: events
+prompt: Customer success checks what each **pro** user did last before going quiet. For every user on the `pro` plan return `user_id`, `last_event` (the event name) and `last_event_at_utc` (the timestamp of that event expressed in UTC as a plain timestamp, `ts AT TIME ZONE 'UTC'`). If a user has several events with the same latest timestamp, take the one with the **highest event id**. Return exactly one row per pro user, ordered by `user_id`.
+solution_sql: |
+  SELECT u.id AS user_id, e.name AS last_event, e.ts AT TIME ZONE 'UTC' AS last_event_at_utc
+  FROM users u
+  JOIN LATERAL (
+    SELECT name, ts
+    FROM events
+    WHERE user_id = u.id
+    ORDER BY ts DESC, id DESC
+    LIMIT 1) e ON true
+  WHERE u.plan = 'pro'
+  ORDER BY u.id
+compare: {order_matters: true}
+hints: ['''Latest per group'' is a top-1-per-group problem: `row_number()` or a LATERAL subquery with `LIMIT 1`.', About 3 % of events share an identical timestamp with another event of the same user.]
+trap: 'Comparing with `ts = (SELECT max(ts) ...)` returns **every** event that shares the latest timestamp: 247 rows for 240 pro users, with some users appearing twice with different event names. A tie-break (`ORDER BY ts DESC, id DESC`) and exactly-one-row logic (`row_number() = 1` or `LIMIT 1`) is needed.'
+followup: '"Which index makes the LATERAL variant fast?" (`events (user_id, ts)`, ideally `(user_id, ts DESC, id DESC)`: each lookup is one index probe.)'

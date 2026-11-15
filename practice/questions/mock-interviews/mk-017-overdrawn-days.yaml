@@ -1,0 +1,32 @@
+id: mk-017
+title: Overdrawn beyond the limit at day end
+topic: mock-interviews
+tags: [window, running-total, ties, cte]
+difficulty: medium
+dataset: bank
+prompt: |
+  Risk wants to know which **checking** accounts dipped below their agreed overdraft. Money amounts are signed (`amount` is negative for money out). On every day an account had transactions, the **end-of-day balance** is the sum of all its transactions up to and including that day (accounts start at 0). A day counts when `end-of-day balance < -overdraft_limit`. Intra-day movements do not count: only the balance at the end of the day does.
+
+  Return the 10 worst accounts: `account_id`, `days_over_limit` (number of such transaction days) and `worst_balance` (the lowest end-of-day balance), ordered by `days_over_limit` descending, then `account_id`.
+solution_sql: |
+  WITH day_net AS (
+    SELECT account_id, tx_date, sum(amount) AS net
+    FROM transactions
+    GROUP BY account_id, tx_date),
+  eod AS (
+    SELECT account_id, tx_date,
+           sum(net) OVER (PARTITION BY account_id ORDER BY tx_date) AS balance
+    FROM day_net)
+  SELECT e.account_id,
+         count(*) AS days_over_limit,
+         min(e.balance) AS worst_balance
+  FROM eod e
+  JOIN accounts a ON a.id = e.account_id
+  WHERE a.type = 'checking' AND e.balance < -a.overdraft_limit
+  GROUP BY e.account_id
+  ORDER BY days_over_limit DESC, e.account_id
+  LIMIT 10
+compare: {order_matters: true}
+hints: [Collapse the transactions to one row per account and day before you build the running sum., 'Order of two transactions of the same day is arbitrary for a business, so a per-transaction running sum can show states that never existed at day end.']
+trap: A running sum per transaction (`ORDER BY tx_date, id`) sees transient states in the middle of a day, e.g. a purchase booked before the deposit of the same day. It reports account 53 on 10 days instead of 9, account 517 on 7 instead of 6, and pushes accounts 313, 371 and 181 into the top 10 where they do not belong. Net the day first, then take the running sum of daily nets.
+followup: '"What if the bank counted calendar days, not just days with transactions?" (Generate a date spine per account and carry the last balance forward: the overdraft lasts until the next transaction fixes it.)'

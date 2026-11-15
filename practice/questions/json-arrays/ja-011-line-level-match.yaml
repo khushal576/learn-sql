@@ -1,0 +1,31 @@
+id: ja-011
+title: Bulk orders of A1 in March
+topic: json-arrays
+tags: [jsonpath, jsonb_path_exists, array-elements]
+difficulty: hard
+dataset: events
+prompt: |
+  Sales wants the **bulk orders of product `A1`**: purchase events where **one and the same basket line** is SKU `A1` with a quantity of **2 or more**. Look only at purchases with `ts` in March 2024 (UTC: from 2024-03-01 00:00 up to, not including, 2024-04-01 00:00).
+
+  Return the event `id`, ordered by `id`.
+solution_sql: |
+  SELECT id
+  FROM events
+  WHERE name = 'purchase'
+    AND ts >= '2024-03-01 00:00+00' AND ts < '2024-04-01 00:00+00'
+    AND jsonb_path_exists(props, '$.items[*] ? (@.sku == "A1" && @.qty >= 2)')
+  ORDER BY id
+compare: {order_matters: true}
+hints:
+  - "The two conditions must hold for the SAME element of the array."
+  - "jsonpath filters `? (...)` are evaluated per element."
+trap: |
+  Testing the two conditions independently (the basket contains an A1 line, and some line has qty >= 2) accepts baskets such as `[{"sku":"A1","qty":1},{"sku":"B2","qty":3}]`: the quantity belongs to another product. A containment test `items @> '[{"sku":"A1"}]'` combined with another test on the quantity returns more events than the real bulk orders; the condition has to be evaluated per line.
+followup: |
+  "Can containment do it?" (Only for exact values: `props -> 'items' @> '[{"sku":"A1","qty":2}]'` matches qty = 2 exactly, not 'two or more' - for ranges use jsonpath or unnest.)
+alternatives:
+  - |
+    SELECT e.id FROM events e
+    WHERE e.name = 'purchase' AND e.ts >= '2024-03-01 00:00+00' AND e.ts < '2024-04-01 00:00+00'
+      AND EXISTS (SELECT 1 FROM jsonb_array_elements(e.props -> 'items') i WHERE i ->> 'sku' = 'A1' AND (i ->> 'qty')::int >= 2)
+    ORDER BY e.id

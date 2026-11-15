@@ -1,0 +1,32 @@
+id: rc-008
+title: Hubs reachable from the main hub
+topic: recursive-cte
+tags:
+- recursive
+- graph
+- cycle
+- distinct
+difficulty: medium
+dataset: logistics
+prompt: |
+  The network team wants to know which hubs can be reached from **main hub 1** by following `routes` (they are one-way: `from_hub` -> `to_hub`, possibly through several hubs). The route map contains loops, so make sure the query terminates.
+
+  Return `hub_id` and `hops` (the **fewest** routes needed to get there) for every reachable hub **other than hub 1**, ordered by `hops`, then `hub_id`.
+solution_sql: |
+  WITH RECURSIVE walk AS (
+    SELECT 1 AS hub, 0 AS hops, ARRAY[1] AS path
+    UNION ALL
+    SELECT r.to_hub, w.hops + 1, w.path || r.to_hub
+    FROM walk w JOIN routes r ON r.from_hub = w.hub
+    WHERE r.to_hub <> ALL (w.path)
+  )
+  SELECT hub AS hub_id, min(hops) AS hops FROM walk WHERE hub <> 1 GROUP BY hub ORDER BY hops, hub
+compare:
+  order_matters: true
+hints:
+- Keep an array of the hubs already visited on this path and refuse to step onto one of them.
+- 'The same hub is reached by several paths: GROUP BY and take the minimum.'
+trap: |
+  Without a visited-hub guard the walk goes around the loops (4 -> 5 -> 6 -> 4, ...) forever. A depth cap 'that should be enough' is the other tempting fix, but the farthest hubs are 8 hops away: capping at 5 hops silently drops 5 of the 27 reachable hubs. Track the path (or de-duplicate with UNION on (hub)) instead of guessing a limit.
+followup: |
+  "Which hubs can NOT be reached?" (anti-join the result against `hubs`: hubs 29 and 30.)

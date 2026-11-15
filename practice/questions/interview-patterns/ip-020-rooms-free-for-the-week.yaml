@@ -1,0 +1,41 @@
+id: ip-020
+title: Rooms free for a whole week
+topic: interview-patterns
+tags: [availability, not-exists, intervals]
+difficulty: medium
+dataset: hotel
+prompt: |
+  A group wants to arrive on **2024-03-06** and leave on **2024-03-13** (seven nights: the 6th to the night of the 12th; `check_out` is exclusive).
+  A room can take them only if
+  - no **confirmed** booking of that room overlaps those nights (a guest leaving on the 6th or arriving on the 13th does **not** block it), and
+  - no `maintenance` window of that room overlaps them (maintenance covers `start_date` through `end_date`, **both days inclusive**).
+  Return `room_id`, `room_number`, `room_type` of the free rooms, ordered by `room_id`.
+solution_sql: |
+  SELECT r.id AS room_id, r.number AS room_number, r.type AS room_type
+  FROM rooms r
+  WHERE NOT EXISTS (SELECT 1 FROM bookings b
+                    WHERE b.room_id = r.id AND b.status = 'confirmed'
+                      AND b.check_in < DATE '2024-03-13' AND b.check_out > DATE '2024-03-06')
+    AND NOT EXISTS (SELECT 1 FROM maintenance m
+                    WHERE m.room_id = r.id
+                      AND m.start_date < DATE '2024-03-13' AND m.end_date >= DATE '2024-03-06')
+  ORDER BY r.id
+compare: {order_matters: true}
+hints:
+  - "A room is free when NO conflicting row exists: that is NOT EXISTS, not a join filter."
+  - "Overlap with the requested window [2024-03-06, 2024-03-13): booking starts before 03-13 AND ends after 03-06."
+trap: |
+  Boundary slip: treating the day a guest leaves (`check_out >= arrival`) or arrives (`check_in <= departure`) as occupied makes back-to-back rooms look busy.
+  Here that hides a free room: 10 rooms are returned instead of the correct 11.
+followup: |
+  "Show how many nights each room is free in March." That needs the complement of merged occupied periods (islands) - or generate_series of dates anti-joined to bookings.
+alternatives:
+  - |
+    SELECT r.id AS room_id, r.number AS room_number, r.type AS room_type
+    FROM rooms r
+    LEFT JOIN (
+      SELECT room_id FROM bookings WHERE status = 'confirmed' AND daterange(check_in, check_out) && daterange('2024-03-06', '2024-03-13')
+      UNION
+      SELECT room_id FROM maintenance WHERE daterange(start_date, end_date, '[]') && daterange('2024-03-06', '2024-03-13')
+    ) busy ON busy.room_id = r.id
+    WHERE busy.room_id IS NULL ORDER BY r.id

@@ -1,0 +1,43 @@
+id: ip-015
+title: Silence before each streak
+topic: interview-patterns
+tags: [gaps-and-islands, streak, lag, reactivation]
+difficulty: hard
+dataset: events
+prompt: |
+  Retention wants to know how long users were **away before each comeback**. A user is **active on a day** if they have at least one event on that calendar day **in UTC**; a streak is a run of consecutive active days. For **users 1 to 60**, list every streak of **3 days or more**, together with the number of **silent days** before it: the full days with no activity between the last day of the user's **previous streak (of any length)** and the first day of this streak. Example: previous streak ended on the 10th, this one starts on the 14th: days 11, 12, 13 are silent, so 3. For the user's first streak there is no previous one: return NULL.
+
+  Return `user_id`, `streak_start`, `streak_end`, `streak_days`, `silent_days_before`, ordered by `user_id`, `streak_start`.
+solution_sql: |
+  WITH d AS (
+    SELECT DISTINCT user_id, (ts AT TIME ZONE 'UTC')::date AS day
+    FROM events WHERE user_id <= 60),
+  i AS (
+    SELECT user_id, day, day - (row_number() OVER (PARTITION BY user_id ORDER BY day))::int AS island FROM d),
+  s AS (
+    SELECT user_id, min(day) AS streak_start, max(day) AS streak_end, count(*) AS streak_days
+    FROM i GROUP BY user_id, island),
+  l AS (
+    SELECT *, streak_start - lag(streak_end) OVER (PARTITION BY user_id ORDER BY streak_start) - 1 AS silent_days_before
+    FROM s)
+  SELECT user_id, streak_start, streak_end, streak_days, silent_days_before
+  FROM l
+  WHERE streak_days >= 3
+  ORDER BY user_id, streak_start
+compare: {order_matters: true}
+hints:
+  - "Build the streaks first (one row each, with first and last day), then use `lag` on the streak rows, not on the event rows."
+  - "Apply the `streak_days >= 3` filter AFTER the lag: the previous streak may be a short one."
+  - "Check your formula on the example in the prompt: 10th to 14th must give 3."
+trap: |
+  The classic off-by-one: `streak_start - lag(streak_end)` gives the distance between the two dates (4 in the example), not the number of silent days between them (3), so every value is one too high. The subtraction counts the day boundaries, the question counts the days strictly in between. Always test a date-difference formula on a tiny example from the prompt.
+followup: |
+  "Why do the `lag` first and the length filter afterwards?" (If you drop short streaks before the `lag`, the 'previous streak' silently becomes the previous LONG streak and the silence is overstated.) "How do you list only comebacks after more than 14 silent days?" (Add `AND silent_days_before > 14` after the lag.)
+alternatives:
+  - |
+    WITH d AS (SELECT DISTINCT user_id, (ts AT TIME ZONE 'UTC')::date AS day FROM events WHERE user_id <= 60),
+    f AS (SELECT user_id, day, lag(day) OVER (PARTITION BY user_id ORDER BY day) AS pd FROM d),
+    g AS (SELECT user_id, day, pd, sum(CASE WHEN pd IS NULL OR day - pd > 1 THEN 1 ELSE 0 END) OVER (PARTITION BY user_id ORDER BY day) AS run FROM f),
+    s AS (SELECT user_id, run, min(day) AS a, max(day) AS b, count(*) AS n, (array_agg(pd ORDER BY day))[1] AS last_before FROM g GROUP BY user_id, run)
+    SELECT user_id, a AS streak_start, b AS streak_end, n AS streak_days, a - last_before - 1 AS silent_days_before
+    FROM s WHERE n >= 3 ORDER BY user_id, a

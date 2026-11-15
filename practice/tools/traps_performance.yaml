@@ -1,0 +1,70 @@
+pf-001:
+  wrong: |
+    SELECT id, created_at, status, amount FROM orders WHERE customer_id::text = '123' ORDER BY created_at DESC, id
+  right: |
+    SELECT id, created_at, status, amount FROM orders WHERE customer_id = '123'::int ORDER BY created_at DESC, id
+pf-002:
+  wrong: |
+    SELECT id, customer_id, amount FROM orders WHERE created_at::date = '2024-03-05' ORDER BY id
+  right: |
+    SELECT id, customer_id, amount FROM orders WHERE created_at >= DATE '2024-03-05' AND created_at < DATE '2024-03-05' + 1 ORDER BY id
+pf-003:
+  wrong: |
+    SELECT id, email, country FROM customers WHERE email ILIKE 'sofia.CHEN123@example.com'
+  right: |
+    SELECT id, email, country FROM customers WHERE lower(email) = 'sofia.chen123@example.com'
+pf-004:
+  wrong: |
+    SELECT id, customer_id, amount FROM orders WHERE status NOT IN ('done','cancelled','returned') AND amount > 490 ORDER BY amount DESC, id
+  right: |
+    SELECT id, customer_id, amount FROM orders WHERE status IN ('open') AND amount >= 490.01 ORDER BY amount DESC, id
+pf-005:
+  wrong: |
+    SELECT count(id) AS orders, sum(amount) AS total_amount, min(created_at) AS first_order, max(created_at) AS last_order FROM orders WHERE customer_id = 123
+  right: |
+    SELECT count(created_at) AS orders, sum(amount) AS total_amount, min(created_at) AS first_order, max(created_at) AS last_order FROM orders WHERE customer_id = 123
+pf-006:
+  wrong: |
+    SELECT c.id FROM customers c LEFT JOIN orders o ON o.customer_id = c.id WHERE c.id BETWEEN 40001 AND 41000 AND o.id IS NULL ORDER BY c.id
+  right: |
+    SELECT c.id FROM customers c WHERE c.id BETWEEN 40001 AND 41000 AND NOT EXISTS (SELECT * FROM orders o WHERE o.customer_id = c.id) ORDER BY 1
+pf-007:
+  wrong: |
+    SELECT order_id, line_no, qty FROM order_items WHERE lower(sku) = 'sku-00042' ORDER BY order_id, line_no
+  right: |
+    SELECT order_id, line_no, qty FROM order_items WHERE sku IN ('SKU-00042') ORDER BY 1, 2
+pf-008:
+  wrong: |
+    SELECT country, count(*) AS customers, count(*) FILTER (WHERE created_at >= '2025-01-01' AND created_at < '2026-01-01') AS joined_2025 FROM customers WHERE lower(country) IN ('india','kenya') GROUP BY country ORDER BY country
+  right: |
+    SELECT country, count(*) AS customers, count(CASE WHEN created_at >= '2025-01-01' AND created_at < '2026-01-01' THEN 1 END) AS joined_2025 FROM customers WHERE country = 'India' OR country = 'Kenya' GROUP BY 1 ORDER BY 1
+pf-009:
+  wrong: |
+    SELECT sku, count(*) AS lines, sum(qty) AS units FROM order_items WHERE sku LIKE 'SKU-0004_' GROUP BY sku ORDER BY sku
+  right: |
+    SELECT sku, count(*) AS lines, sum(qty) AS units FROM order_items WHERE sku BETWEEN 'SKU-00040' AND 'SKU-00049' GROUP BY sku ORDER BY sku
+pf-010:
+  wrong: |
+    SELECT customer_id, count(DISTINCT id) AS orders, sum(amount) AS total_amount FROM orders WHERE customer_id BETWEEN 101 AND 110 AND created_at >= '2024-01-01' AND created_at < '2025-01-01' GROUP BY customer_id ORDER BY customer_id
+  right: |
+    SELECT customer_id, count(created_at) AS orders, sum(amount) AS total_amount FROM orders WHERE customer_id >= 101 AND customer_id <= 110 AND created_at >= '2024-01-01' AND created_at < '2025-01-01' GROUP BY 1 ORDER BY 1
+pf-011:
+  wrong: |
+    SELECT id, customer_id, created_at, amount FROM orders ORDER BY created_at::date DESC, created_at DESC, id LIMIT 20
+  right: |
+    SELECT id, customer_id, created_at, amount FROM orders ORDER BY created_at DESC, id FETCH FIRST 20 ROWS ONLY
+pf-012:
+  wrong: |
+    SELECT i.order_id, i.line_no, i.sku, i.qty FROM customers c JOIN orders o ON o.customer_id = c.id JOIN order_items i ON i.order_id = o.id WHERE c.email ILIKE 'sofia.chen123@example.com' ORDER BY i.order_id, i.line_no
+  right: |
+    SELECT i.order_id, i.line_no, i.sku, i.qty FROM order_items i WHERE i.order_id IN (SELECT o.id FROM orders o WHERE o.customer_id IN (SELECT c.id FROM customers c WHERE lower(c.email) = 'sofia.chen123@example.com')) ORDER BY 1, 2
+pf-013:
+  wrong: |
+    SELECT date_trunc('month', created_at)::date AS month, count(*) FILTER (WHERE status = 'open') AS open_orders FROM orders GROUP BY month ORDER BY month
+  right: |
+    SELECT (date_trunc('month', created_at))::date AS month, count(*) AS open_orders FROM orders WHERE status IN ('open') GROUP BY 1 ORDER BY 1
+pf-014:
+  wrong: |
+    SELECT id, customer_id, created_at FROM orders WHERE customer_id = 123 OR created_at::date = '2025-12-29'
+  right: |
+    SELECT id, customer_id, created_at FROM orders WHERE customer_id = 123 UNION SELECT id, customer_id, created_at FROM orders WHERE created_at >= '2025-12-29'

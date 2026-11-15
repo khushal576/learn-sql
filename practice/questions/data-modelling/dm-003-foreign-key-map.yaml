@@ -1,0 +1,35 @@
+id: dm-003
+title: Foreign key map of the school
+topic: data-modelling
+tags: [foreign-key, pg_constraint, composite-key]
+difficulty: medium
+dataset: school
+prompt: |
+  For the architecture review you need the **foreign key map** of the **school** model: one line per foreign key **constraint**.
+
+  Return `table_name` (the table that holds the key), `columns` (the key's columns in key order, separated by `, `) and `referenced_table`, ordered by `table_name`, then `columns`.
+
+  A foreign key over two columns is still ONE foreign key and must be ONE row.
+solution_sql: |
+  SELECT c.conrelid::regclass::text AS table_name,
+         (SELECT string_agg(a.attname, ', ' ORDER BY k.ord)
+            FROM unnest(c.conkey) WITH ORDINALITY AS k(attnum, ord)
+            JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = k.attnum) AS columns,
+         c.confrelid::regclass::text AS referenced_table
+  FROM pg_constraint c
+  WHERE c.contype = 'f' AND c.connamespace = current_schema()::regnamespace
+  ORDER BY 1, 2
+compare: {order_matters: true}
+hints:
+  - "Foreign keys are constraints of kind 'f'. The columns are stored as an array of column numbers (conkey)."
+  - "A composite key has several columns: how many rows does your query produce for it before you aggregate?"
+trap: |
+  Joining the constraint to its columns (`pg_attribute` on `attnum = ANY(conkey)`, or `information_schema.key_column_usage`) gives **one row per key column**: the composite key `scores_student_id_course_id_fkey` shows up as two lines, `student_id` and `course_id`, and reads like two foreign keys. The columns have to be aggregated back into one row per constraint, in key order. (Also prefer `pg_constraint` as the source: the `information_schema` constraint views only show constraints of tables you own, and are empty for a read-only role.)
+followup: |
+  "Why can't a FOREIGN KEY on (student_id, course_id) be replaced by two single-column foreign keys?" (Two separate keys only prove that the student exists and that the course exists - not that THIS student is enrolled in THIS course.)
+alternatives:
+  - |
+    SELECT c.conrelid::regclass::text AS table_name, string_agg(a.attname, ', ' ORDER BY array_position(c.conkey, a.attnum)) AS columns, c.confrelid::regclass::text AS referenced_table
+    FROM pg_constraint c JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = ANY (c.conkey)
+    WHERE c.contype = 'f' AND c.connamespace = current_schema()::regnamespace
+    GROUP BY c.oid, 1, 3 ORDER BY 1, 2

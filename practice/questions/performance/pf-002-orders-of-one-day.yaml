@@ -1,0 +1,28 @@
+id: pf-002
+title: Orders of a single day
+topic: performance
+tags: [index, sargable, range, timestamp]
+difficulty: easy
+dataset: perf
+prompt: |
+  Finance reconciles the day **2024-03-05** and asks for every order created that day, but the report scans the whole `orders` table (300 000 rows) although `created_at` is indexed.
+
+  Return `id`, `customer_id`, `amount` of all orders with `created_at` on 2024-03-05, ordered by `id`.
+  Check also looks at the query plan: the table must not be read sequentially.
+solution_sql: |
+  SELECT id, customer_id, amount FROM orders WHERE created_at >= '2024-03-05' AND created_at < '2024-03-06' ORDER BY id
+check:
+  type: plan
+  must_use: ["Index Scan|Index Only Scan|Bitmap Index Scan|Bitmap Heap Scan"]
+  must_not_use: ["Seq Scan on orders"]
+  note: "the day filter must be answered through the index on created_at"
+compare: {order_matters: true}
+hints:
+  - "The index stores raw `created_at` values. A predicate must compare the bare column with constants for the index to help."
+  - "A day is a half-open range: from the start of the day up to (not including) the start of the next day."
+trap: |
+  `WHERE created_at::date = '2024-03-05'` gives the right 274 orders but applies a cast to every row, so the index on `created_at` is useless and the table is scanned (in parallel, but still all of it). `date_trunc('day', created_at) = ...` fails the same way. Rewrite it as `created_at >= day AND created_at < day + 1`.
+followup: |
+  "Why not `BETWEEN '2024-03-05' AND '2024-03-06'`?" (BETWEEN is inclusive: an order at exactly midnight of the 6th would leak in.)
+alternatives:
+  - "SELECT id, customer_id, amount FROM orders WHERE created_at >= DATE '2024-03-05' AND created_at < DATE '2024-03-05' + 1 ORDER BY id"

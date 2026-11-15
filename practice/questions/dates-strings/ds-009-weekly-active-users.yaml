@@ -1,0 +1,28 @@
+id: ds-009
+title: Weekly active users, weeks start Sunday
+topic: dates-strings
+tags: [date_trunc, week, count-distinct]
+difficulty: medium
+dataset: events
+prompt: |
+  The US finance team reports on **weeks that start on Sunday** (a week runs Sunday 00:00 to Saturday 23:59:59, in UTC). Count the **distinct active users** (users with at least one event) per week, using events from **2024-01-01 00:00 UTC up to but not including 2024-03-01 00:00 UTC**.
+
+  Return `week_start` (the Sunday, as a `date`) and `active_users`, ordered by `week_start`. Note that the first week starts on Sunday 2023-12-31.
+solution_sql: |
+  SELECT (date_trunc('week', (ts AT TIME ZONE 'UTC') + interval '1 day') - interval '1 day')::date AS week_start,
+         count(DISTINCT user_id) AS active_users
+  FROM events
+  WHERE ts >= timestamptz '2024-01-01 00:00+00' AND ts < timestamptz '2024-03-01 00:00+00'
+  GROUP BY 1
+  ORDER BY 1
+compare: {order_matters: true}
+hints:
+  - "`date_trunc('week', ...)` has a fixed idea of which day starts a week."
+  - "Shift the date by one day, truncate, shift back."
+trap: |
+  `date_trunc('week', ts)` (like ISO weeks and `to_char(..., 'IW')`) starts weeks on **Monday**, so it returns Mondays (`2024-01-01`...) and every user's events are bucketed into the wrong week for the finance calendar: not a single `week_start` matches. Shift by one day before and after truncating to get Sunday starts. (Also count `DISTINCT user_id`: a user with 50 events is still one active user.)
+followup: |
+  "What is the ISO year of 2024-12-30?" (2025: ISO week 1 of 2025 starts on that Monday, so `to_char(d,'YYYY')` and `'IYYY'` disagree around New Year.)
+alternatives:
+  - |
+    SELECT (d - extract(dow FROM d)::int)::date AS week_start, count(DISTINCT user_id) AS active_users FROM (SELECT user_id, (ts AT TIME ZONE 'UTC')::date AS d FROM events WHERE ts >= timestamptz '2024-01-01 00:00+00' AND ts < timestamptz '2024-03-01 00:00+00') t GROUP BY 1 ORDER BY 1

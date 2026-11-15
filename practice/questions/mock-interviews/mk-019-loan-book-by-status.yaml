@@ -1,0 +1,22 @@
+id: mk-019
+title: Loan book by status with weighted rate
+topic: mock-interviews
+tags: [aggregation, weighted-average]
+difficulty: easy
+dataset: bank
+prompt: |
+  Credit risk starts every meeting with the loan book. For every loan `status` return `status`, `loans` (number of loans), `total_principal` and `weighted_rate`: the average `annual_rate` **weighted by principal** (sum of principal x rate divided by sum of principal), rounded to 2 decimals.
+
+  Order by `total_principal` descending, then `status`.
+solution_sql: |
+  SELECT status,
+         count(*) AS loans,
+         sum(principal) AS total_principal,
+         round(sum(principal * annual_rate) / sum(principal), 2) AS weighted_rate
+  FROM loans
+  GROUP BY status
+  ORDER BY total_principal DESC, status
+compare: {order_matters: true}
+hints: [A weighted average is a ratio of two sums., '`avg(annual_rate)` treats a 5,000 loan and a 50,000 loan alike.']
+trap: '`avg(annual_rate)` gives every loan the same weight: active loans show 7.74 instead of 7.85, defaulted 7.81 instead of 7.85 and paid 7.75 instead of 7.76. A portfolio rate must weight each loan by the money it carries.'
+followup: '"Why do banks look at the weighted rate rather than the simple one?" (Interest income is proportional to money lent; the weighted rate is the portfolio yield.)'

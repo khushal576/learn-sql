@@ -1,0 +1,30 @@
+id: rc-003
+title: Full address of every city
+topic: recursive-cte
+tags:
+- recursive
+- tree
+- string-agg
+difficulty: easy
+dataset: logistics
+prompt: |
+  The marketing site must print the **full location path** of every city we serve, in the form `World > Country > State > City` (region names joined with ` > `). A *city* is a region at the lowest level (level 4; the root `World` is level 1).
+
+  Return `city_id` (the region id) and `path`, ordered by `city_id`.
+solution_sql: |
+  WITH RECURSIVE r AS (
+    SELECT id, name AS path, 1 AS level FROM regions WHERE parent_id IS NULL
+    UNION ALL
+    SELECT c.id, r.path || ' > ' || c.name, r.level + 1
+    FROM regions c JOIN r ON c.parent_id = r.id
+  )
+  SELECT id AS city_id, path FROM r WHERE level = 4 ORDER BY id
+compare:
+  order_matters: true
+hints:
+- Start at the root (`parent_id IS NULL`) and append the child's name to the parent's path at each step.
+- Carry a `level` column so you can keep only the leaves.
+trap: |
+  Joining the city to its parent only gives 'State > City'; the 4-level path needs the grandparents too. Recursing top-down and concatenating gives all 43 cities without hard-coding the depth.
+followup: |
+  "Do it the other way round - start from one city and walk up." (Same result with an upward recursion that prepends the parent's name.)

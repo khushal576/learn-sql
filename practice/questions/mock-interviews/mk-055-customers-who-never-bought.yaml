@@ -1,0 +1,26 @@
+id: mk-055
+title: "Customers who never bought"
+topic: mock-interviews
+tags: ["anti-join", "not-exists", "group-by"]
+difficulty: easy
+dataset: ecommerce
+prompt: |
+  Shreya: "How many registered customers never actually bought anything - broken down by country?" A customer **bought** if they have at least one order whose status is not `cancelled`.
+  Return `country` and `customers` (the number of customers who never bought) for every country that has at least one such customer, ordered by `country`.
+solution_sql: |
+  SELECT c.country, count(*) AS customers
+  FROM customers c
+  WHERE NOT EXISTS (
+    SELECT 1 FROM orders o WHERE o.customer_id = c.id AND o.status <> 'cancelled'
+  )
+  GROUP BY c.country
+  ORDER BY c.country
+compare: {order_matters: true}
+hints:
+  - "'Never bought' is an anti-join: NOT EXISTS (or LEFT JOIN ... IS NULL)."
+  - "The condition 'not cancelled' belongs INSIDE the subquery (or the ON clause)."
+  - "A customer whose only orders were cancelled counts as never bought."
+trap: |
+  Checking only that no order row exists at all misses the customers whose every order was cancelled: the wrong query finds 210 customers, the correct one 228 (18 customers have nothing but cancelled orders).
+followup: |
+  "Why not NOT IN (SELECT customer_id FROM orders)?" It works here only because customer_id is NOT NULL; a single NULL in the subquery would make NOT IN return no rows at all.

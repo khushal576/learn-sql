@@ -1,0 +1,22 @@
+id: mk-034
+title: How long do subscriptions last
+topic: mock-interviews
+tags: [aggregation, dates, inclusive-range, 'null']
+difficulty: easy
+dataset: events
+prompt: |
+  Billing reviews subscription lengths. `started_on` and `ended_on` are both **inclusive** days (a subscription that starts and ends on the same day lasted 1 day); `ended_on` NULL means it is still running.
+
+  Return per plan: `plan`, `subscriptions` (all rows), `still_active` (rows still running) and `avg_days_finished` (the average duration in days of the **finished** subscriptions only, rounded to 2 decimals), ordered by `plan`.
+solution_sql: |
+  SELECT plan,
+         count(*) AS subscriptions,
+         count(*) FILTER (WHERE ended_on IS NULL) AS still_active,
+         round(avg(ended_on - started_on + 1), 2) AS avg_days_finished
+  FROM subscriptions
+  GROUP BY plan
+  ORDER BY plan
+compare: {order_matters: true}
+hints: ['Date minus date gives the number of days between them: does that count both end days?', '`avg()` skips NULL durations by itself.']
+trap: '`ended_on - started_on` counts the days *between* the dates and loses the first day: pro shows 48.25 days instead of 49.25 and team 45.80 instead of 46.80. Inclusive ranges need `+ 1`. Putting the still-running rows into the average (for example via `coalesce(ended_on, current_date)`) would be a second, different mistake: they are not finished.'
+followup: '"How would you compute the average age of the still-running subscriptions as of 2024-04-30?" (`DATE ''2024-04-30'' - started_on + 1` for the NULL-ended rows: another business definition, stated explicitly.)'

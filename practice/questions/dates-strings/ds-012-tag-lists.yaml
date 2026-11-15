@@ -1,0 +1,29 @@
+id: ds-012
+title: Readable tag list per user
+topic: dates-strings
+tags: [arrays, string_agg, "null", coalesce]
+difficulty: medium
+dataset: events
+prompt: |
+  The CRM export needs one text cell per user with their tags. For **users 1 to 25**, return `id` and `tag_list`: the tags **sorted alphabetically in plain byte order** (`COLLATE "C"`, so an upper-case `Beta` sorts before `beta`), joined with a comma and **no space** (`beta,newsletter`). A user with **no tags at all** — the column is NULL **or** the array is empty — shows the text `(none)`.
+
+  Order by `id`.
+solution_sql: |
+  SELECT u.id,
+         CASE WHEN coalesce(cardinality(u.tags), 0) = 0 THEN '(none)'
+              ELSE (SELECT string_agg(t, ',' ORDER BY t COLLATE "C") FROM unnest(u.tags) AS t)
+         END AS tag_list
+  FROM users u
+  WHERE u.id <= 25
+  ORDER BY u.id
+compare: {order_matters: true}
+hints:
+  - "NULL and `'{}'` are two different things: one is 'unknown', the other is a real empty list."
+  - "`array_to_string` does not sort. Unnest, then `string_agg(... ORDER BY ...)`."
+trap: |
+  `coalesce(array_to_string(tags, ','), '(none)')` handles NULL but not the empty array: `array_to_string('{}', ',')` is the **empty string**, not NULL, so users 9 and 18 show an empty cell instead of `(none)` (and the tags are not sorted either). Test both cases: `tags IS NULL` and `cardinality(tags) = 0`.
+followup: |
+  "How do you find users who have the tag `beta` in any case?" (`EXISTS (SELECT 1 FROM unnest(tags) t WHERE lower(t) = 'beta')`; `'beta' = ANY(tags)` is case sensitive.)
+alternatives:
+  - |
+    SELECT id, coalesce(nullif((SELECT string_agg(t, ',' ORDER BY t COLLATE "C") FROM unnest(tags) t), ''), '(none)') AS tag_list FROM users WHERE id <= 25 ORDER BY id

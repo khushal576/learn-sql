@@ -1,0 +1,26 @@
+id: ja-006
+title: Signups by campaign source
+topic: json-arrays
+tags: [jsonb, nested, "path-operator"]
+difficulty: medium
+dataset: events
+prompt: |
+  Growth wants to know where signups come from. A `signup` event may carry a nested object `utm` in its `props` (with `source` and `campaign`); signups without it came in directly.
+
+  Return `source` and `signups`, ordered by `signups` descending, then `source`. Signups without a UTM source are counted under the label `direct`.
+solution_sql: |
+  SELECT coalesce(props #>> '{utm,source}', 'direct') AS source, count(*) AS signups
+  FROM events
+  WHERE name = 'signup'
+  GROUP BY 1
+  ORDER BY signups DESC, source
+compare: {order_matters: true}
+hints:
+  - "A path operator reaches into nested objects and never errors on a missing level."
+trap: |
+  Filtering with `WHERE props ? 'utm'` (or an inner join to the extracted value) throws away the 266 signups that came in directly: the report shows only the four campaign sources and the biggest bucket of customers is invisible. Extract with a path operator and give the NULL a label with `coalesce`.
+followup: |
+  "And if `utm` could be a string in some rows?" (`props #>> '{utm,source}'` returns NULL when the path cannot be followed, it does not raise; `jsonb_typeof(props -> 'utm') = 'object'` guards explicitly.)
+alternatives:
+  - |
+    SELECT coalesce(props -> 'utm' ->> 'source', 'direct') AS source, count(*) AS signups FROM events WHERE name = 'signup' GROUP BY 1 ORDER BY 2 DESC, 1

@@ -1,0 +1,54 @@
+id: dm-006
+title: Preview a staging-table salary raise
+topic: data-modelling
+tags: [update-from, preview, row-number, duplicates]
+difficulty: medium
+dataset: hr
+prompt: |
+  HR loaded a staging table of department raises and wants to run `UPDATE employees SET salary = ... FROM staging`. Before that, finance asks for a before/after **preview** for the three departments involved. The staging rows (`dept_id`, `pct`, `valid_from`) are:
+
+  | dept_id | pct | valid_from |
+  |---|---|---|
+  | 2 | 3.0 | 2024-01-01 |
+  | 2 | 5.0 | 2024-04-01 |
+  | 2 | 9.0 | 2024-09-01 |
+  | 3 | 4.0 | 2024-02-01 |
+  | 5 | 2.5 | 2024-05-01 |
+  | 5 | 6.0 | 2025-01-01 |
+
+  For each department, the **one staging row that applies** is the one with the **latest `valid_from` on or before 2024-06-30** (later rows are not valid yet). Each affected employee gets `salary * (1 + pct / 100)` rounded to 2 decimals.
+
+  Return `id`, `old_salary`, `new_salary` for every employee of departments 2, 3 and 5 (each employee exactly once), ordered by `id`.
+solution_sql: |
+  WITH staging(dept_id, pct, valid_from) AS (
+    VALUES (2, 3.0, DATE '2024-01-01'), (2, 5.0, DATE '2024-04-01'), (2, 9.0, DATE '2024-09-01'),
+           (3, 4.0, DATE '2024-02-01'), (5, 2.5, DATE '2024-05-01'), (5, 6.0, DATE '2025-01-01')
+  ), applied AS (
+    SELECT DISTINCT ON (dept_id) dept_id, pct
+    FROM staging
+    WHERE valid_from <= DATE '2024-06-30'
+    ORDER BY dept_id, valid_from DESC
+  )
+  SELECT e.id, e.salary AS old_salary, round(e.salary * (1 + a.pct / 100), 2) AS new_salary
+  FROM employees e
+  JOIN applied a ON a.dept_id = e.dept_id
+  ORDER BY e.id
+compare: {order_matters: true}
+hints:
+  - "How many staging rows match each employee if you simply join on dept_id?"
+  - "Reduce the staging data to one row per department BEFORE you join it to employees."
+trap: |
+  Joining employees straight to the staging list matches every employee with 2 or 3 staging rows, so the preview shows duplicates and the future-dated raises. Worse, a real `UPDATE ... FROM` with such a join silently applies only ONE arbitrary matching row per employee - no error, wrong salary. The preview exposes the fan-out: the naive join returns 190 rows for 95 employees.
+followup: |
+  "How do you make the real UPDATE safe?" (Use the de-duplicated set as the FROM source - a CTE with DISTINCT ON / row_number() = 1 - so that every target row matches at most one source row.)
+alternatives:
+  - |
+    SELECT e.id, e.salary AS old_salary, round(e.salary * (1 + s.pct / 100), 2) AS new_salary
+    FROM employees e
+    JOIN (VALUES (2, 3.0, DATE '2024-01-01'), (2, 5.0, DATE '2024-04-01'), (2, 9.0, DATE '2024-09-01'),
+                 (3, 4.0, DATE '2024-02-01'), (5, 2.5, DATE '2024-05-01'), (5, 6.0, DATE '2025-01-01')) AS s(dept_id, pct, valid_from)
+      ON s.dept_id = e.dept_id
+    WHERE s.valid_from = (SELECT max(t.valid_from) FROM (VALUES (2, DATE '2024-01-01'), (2, DATE '2024-04-01'), (2, DATE '2024-09-01'),
+                 (3, DATE '2024-02-01'), (5, DATE '2024-05-01'), (5, DATE '2025-01-01')) AS t(d, valid_from)
+                 WHERE t.d = e.dept_id AND t.valid_from <= DATE '2024-06-30')
+    ORDER BY e.id

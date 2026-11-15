@@ -1,0 +1,33 @@
+id: ip-017
+title: Buyers who never activated
+topic: interview-patterns
+tags: [funnel, anti-join, not-exists]
+difficulty: medium
+dataset: events
+prompt: |
+  The data team found that the funnel has a leak: some users bought something although they never reached the `activated` step
+  (a bug in the checkout skipped onboarding). List them so support can follow up.
+  Return `user_id`, `plan` and `purchases` (how many `purchase` events the user has), only for users with **at least one purchase and no `activated` event at all**,
+  ordered by `user_id`.
+solution_sql: |
+  SELECT u.id AS user_id, u.plan, count(*) AS purchases
+  FROM users u
+  JOIN events p ON p.user_id = u.id AND p.name = 'purchase'
+  WHERE NOT EXISTS (SELECT 1 FROM events a WHERE a.user_id = u.id AND a.name = 'activated')
+  GROUP BY u.id, u.plan
+  ORDER BY u.id
+compare: {order_matters: true}
+hints:
+  - "'Never activated' is a statement about the user's whole history, not about one row."
+  - "NOT EXISTS (or a LEFT JOIN ... IS NULL) is the anti-join."
+trap: |
+  Negating inside a single row (`name = 'purchase' AND name <> 'activated'`, or joining the user's other events with `<>`) is always true for a purchase row, so it
+  returns all 221 buyers instead of the 8 who never activated. "Never" needs an anti-join over the user's events.
+followup: |
+  "How would you find users who purchased BEFORE activating?" Compare `min(ts)` of the two events per user (next question in this set).
+alternatives:
+  - |
+    SELECT user_id, plan, purchases FROM (
+      SELECT u.id AS user_id, u.plan, count(*) FILTER (WHERE e.name = 'purchase') AS purchases, count(*) FILTER (WHERE e.name = 'activated') AS acts
+      FROM users u JOIN events e ON e.user_id = u.id GROUP BY u.id, u.plan
+    ) t WHERE purchases > 0 AND acts = 0 ORDER BY user_id

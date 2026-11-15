@@ -1,0 +1,41 @@
+id: mk-033
+title: Sessions per plan
+topic: mock-interviews
+tags: [sessionization, window, lag, gap]
+difficulty: hard
+dataset: events
+prompt: |
+  Product wants engagement per plan. Define **sessions** per user: events are ordered by `ts` (ties by `id`); a new session starts at a user's first event and whenever the gap to the previous event is **more than 30 minutes** (a gap of exactly 30 minutes stays in the same session).
+
+  Return per `users.plan`: `plan`, `active_users` (users with at least one event), `sessions` (total number of sessions), `sessions_per_user` (sessions divided by active users, rounded to 2 decimals) and `events_per_session` (events divided by sessions, rounded to 2 decimals), ordered by `plan`.
+solution_sql: |
+  WITH g AS (
+    SELECT user_id, id, ts,
+           ts - lag(ts) OVER (PARTITION BY user_id ORDER BY ts, id) AS gap
+    FROM events),
+  s AS (
+    SELECT user_id,
+           count(*) FILTER (WHERE gap IS NULL OR gap > interval '30 minutes')
+             OVER (PARTITION BY user_id ORDER BY ts, id) AS session_no
+    FROM g),
+  per_session AS (
+    SELECT user_id, session_no, count(*) AS n_events
+    FROM s
+    GROUP BY user_id, session_no),
+  per_user AS (
+    SELECT user_id, count(*) AS sessions, sum(n_events) AS n_events
+    FROM per_session
+    GROUP BY user_id)
+  SELECT u.plan,
+         count(*) AS active_users,
+         sum(p.sessions) AS sessions,
+         round(avg(p.sessions), 2) AS sessions_per_user,
+         round(sum(p.n_events)::numeric / sum(p.sessions), 2) AS events_per_session
+  FROM per_user p
+  JOIN users u ON u.id = p.user_id
+  GROUP BY u.plan
+  ORDER BY u.plan
+compare: {order_matters: true}
+hints: ['`lag(ts)` per user gives the gap; flag the events that start a session.', 'Is the boundary `>` or `>=`? Read the sentence again: there are gaps of exactly 1800 seconds in the data.']
+trap: 'Using `>=` 30 minutes treats a gap of exactly 30 minutes as a break. The data contains such gaps on purpose: free users then show 3,846 sessions instead of 3,331 and 2.28 events per session instead of 2.63; the other plans are off in the same way.'
+followup: '"Why is the 30-minute rule arbitrary, and how would you pick it from data?" (Look at the distribution of gaps: it is bimodal, a cluster of seconds-to-minutes and a long tail; the valley between is the natural threshold.)'

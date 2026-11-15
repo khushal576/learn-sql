@@ -1,0 +1,25 @@
+id: mk-007
+title: Rating league of well-reviewed products
+topic: mock-interviews
+tags: [aggregation, having, count-null]
+difficulty: easy
+dataset: ecommerce
+prompt: |
+  The product team publishes a 'best rated' list. Only products with **at least 20 reviews** qualify. A review may carry just a star rating (`body` is NULL) or a rating plus a written text.
+
+  Return the top 10 as `product_id`, `name`, `reviews` (number of reviews), `written_reviews` (reviews that have a text), `avg_rating` (average stars rounded to 2 decimals), ordered by `avg_rating` descending, then `reviews` descending, then `product_id`.
+solution_sql: |
+  SELECT p.id AS product_id, p.name,
+         count(*) AS reviews,
+         count(r.body) AS written_reviews,
+         round(avg(r.rating), 2) AS avg_rating
+  FROM reviews r
+  JOIN products p ON p.id = r.product_id
+  GROUP BY p.id, p.name
+  HAVING count(*) >= 20
+  ORDER BY avg_rating DESC, reviews DESC, p.id
+  LIMIT 10
+compare: {order_matters: true}
+hints: ['`count(column)` and `count(*)` do not always return the same number.', 'The 20-review threshold applies to groups: which clause filters groups?']
+trap: '`count(*)` counts every review, so `written_reviews` would equal `reviews` (23 for the leading product instead of 15). `count(body)` skips NULLs, which is exactly the ''has a text'' definition.'
+followup: '"Should a product with 20 reviews of 4.9 rank above one with 2,000 reviews of 4.8?" (Discuss a Bayesian / minimum-votes average: the threshold we used is the crude version.)'

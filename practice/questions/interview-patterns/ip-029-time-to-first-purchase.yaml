@@ -1,0 +1,42 @@
+id: ip-029
+title: Time to convert - median and p90 per plan
+topic: interview-patterns
+tags: [percentile, funnel, first-event]
+difficulty: hard
+dataset: events
+prompt: |
+  Product wants to know how long users take to buy. For every user with at least one `purchase`, measure the time from `users.signup_at` to the user's **first** purchase,
+  in days with fractions (`extract(epoch from ...) / 86400`). Per user plan return `plan`, `buyers` (users with a purchase), `median_days` and `p90_days`
+  (continuous percentiles, 0.5 and 0.9, both **rounded to 2 decimals**), ordered by `plan`.
+solution_sql: |
+  WITH first_buy AS (
+    SELECT user_id, min(ts) AS first_ts FROM events WHERE name = 'purchase' GROUP BY user_id
+  )
+  SELECT u.plan,
+         count(*) AS buyers,
+         round((percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM f.first_ts - u.signup_at) / 86400))::numeric, 2) AS median_days,
+         round((percentile_cont(0.9) WITHIN GROUP (ORDER BY extract(epoch FROM f.first_ts - u.signup_at) / 86400))::numeric, 2) AS p90_days
+  FROM first_buy f
+  JOIN users u ON u.id = f.user_id
+  GROUP BY u.plan
+  ORDER BY u.plan
+compare: {order_matters: true}
+hints:
+  - "One value per user first: reduce the purchase events to each user's earliest one."
+  - "percentile_cont(p) WITHIN GROUP (ORDER BY value) is an ordered-set aggregate."
+trap: |
+  Taking percentiles over ALL purchase events instead of each user's first one weights heavy buyers (user 369 has 49 purchases) and measures the wrong thing:
+  the 'pro' median becomes 13.48 days instead of 0.73, and 'free' buyers count 536 instead of 112.
+followup: |
+  "Why median and p90 rather than the average?" Time-to-event data is skewed; a few slow converters drag the mean, the median shows the typical user and p90 the tail.
+alternatives:
+  - |
+    SELECT plan, count(*) AS buyers,
+           round((percentile_cont(0.5) WITHIN GROUP (ORDER BY d))::numeric, 2) AS median_days,
+           round((percentile_cont(0.9) WITHIN GROUP (ORDER BY d))::numeric, 2) AS p90_days
+    FROM (
+      SELECT DISTINCT ON (e.user_id) u.plan, extract(epoch FROM e.ts - u.signup_at) / 86400 AS d
+      FROM events e JOIN users u ON u.id = e.user_id
+      WHERE e.name = 'purchase'
+      ORDER BY e.user_id, e.ts
+    ) t GROUP BY plan ORDER BY plan

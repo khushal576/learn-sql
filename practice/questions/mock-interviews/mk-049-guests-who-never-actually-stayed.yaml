@@ -1,0 +1,25 @@
+id: mk-049
+title: "Guests who never actually stayed"
+topic: mock-interviews
+tags: ["anti-join", "not-exists", "status-filter"]
+difficulty: easy
+dataset: hotel
+prompt: |
+  The loyalty team wants to write to guests who have **no confirmed booking at all** - guests who only ever cancelled or did not show up, and guests who never booked anything.
+  Return `guest_id`, `name` and `loyalty` for each of them, ordered by `guest_id`.
+solution_sql: |
+  SELECT g.id AS guest_id, g.name, g.loyalty
+  FROM guests g
+  WHERE NOT EXISTS (
+    SELECT 1 FROM bookings b WHERE b.guest_id = g.id AND b.status = 'confirmed'
+  )
+  ORDER BY g.id
+compare: {order_matters: true}
+hints:
+  - "'None of their bookings is confirmed' is an anti-join, not a join on 'not confirmed'."
+  - "NOT EXISTS (SELECT 1 ... WHERE guest_id = ... AND status = 'confirmed'), or LEFT JOIN with the status condition in ON, then IS NULL."
+  - "A guest with one cancelled AND one confirmed booking must not be listed."
+trap: |
+  Joining bookings with `status <> 'confirmed'` lists every guest who has at least one cancelled or no-show booking - including guests who also stayed: 142 guests instead of the real 13.
+followup: |
+  "Split them: never booked versus only cancelled/no-show." LEFT JOIN guests to bookings, then count(b.id) = 0 versus count(*) FILTER (WHERE status = 'confirmed') = 0.

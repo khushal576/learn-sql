@@ -1,0 +1,42 @@
+id: ip-022
+title: Weekly signup cohorts - week 1 retention
+topic: interview-patterns
+tags: [cohort, retention, date-trunc]
+difficulty: medium
+dataset: events
+prompt: |
+  Growth tracks retention by **signup-week cohort**. A user's cohort is the Monday of the calendar week of `users.signup_at` (weeks start on Monday, dates in **UTC**).
+  A user is **active** in a week if they have at least one event **other than** `signup` in that calendar week (UTC); "week 1" is the calendar week right after the signup week.
+  For every cohort return `cohort_week` (the Monday, a date), `cohort_size` (users in the cohort), `week1_active` (distinct cohort users active in week 1) and
+  `week1_pct` (`week1_active` as a percentage 0-100 of the cohort, **rounded to 1 decimal**), ordered by `cohort_week`.
+solution_sql: |
+  WITH u AS (
+    SELECT id, date_trunc('week', signup_at AT TIME ZONE 'UTC')::date AS wk FROM users
+  ), a AS (
+    SELECT DISTINCT u.id FROM u
+    JOIN events e ON e.user_id = u.id AND e.name <> 'signup'
+                 AND date_trunc('week', e.ts AT TIME ZONE 'UTC')::date = u.wk + 7
+  )
+  SELECT u.wk AS cohort_week, count(*) AS cohort_size, count(a.id) AS week1_active,
+         round(100.0 * count(a.id) / count(*), 1) AS week1_pct
+  FROM u LEFT JOIN a ON a.id = u.id
+  GROUP BY u.wk
+  ORDER BY u.wk
+compare: {order_matters: true}
+hints:
+  - "Compute the cohort week and the activity week the same way, then compare them with a 7-day offset."
+  - "Several events in week 1 must still make ONE active user. The denominator is the whole cohort, including users who never came back."
+trap: |
+  Joining the events and counting rows (`count(*)`) instead of `count(DISTINCT user_id)` counts events: the first cohort shows 354 "active users" out of 56
+  (an impossible 632 % retention). Retention counts people.
+followup: |
+  "How do you fill week 2, 3, ...?" Group the active users by `(activity_week - cohort_week) / 7` - a full retention triangle from one query.
+alternatives:
+  - |
+    SELECT c.wk AS cohort_week, c.n AS cohort_size, count(DISTINCT e.user_id) AS week1_active,
+           round(100.0 * count(DISTINCT e.user_id) / c.n, 1) AS week1_pct
+    FROM (SELECT date_trunc('week', signup_at AT TIME ZONE 'UTC')::date AS wk, count(*) AS n FROM users GROUP BY 1) c
+    LEFT JOIN users u ON date_trunc('week', u.signup_at AT TIME ZONE 'UTC')::date = c.wk
+    LEFT JOIN events e ON e.user_id = u.id AND e.name <> 'signup'
+         AND e.ts >= (c.wk + 7)::timestamp AT TIME ZONE 'UTC' AND e.ts < (c.wk + 14)::timestamp AT TIME ZONE 'UTC'
+    GROUP BY c.wk, c.n ORDER BY c.wk

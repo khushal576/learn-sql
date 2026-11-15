@@ -1,0 +1,28 @@
+id: pf-001
+title: The order history page that crawls
+topic: performance
+tags: [index, sargable, cast]
+difficulty: easy
+dataset: perf
+prompt: |
+  Support opens the **order history** of customer **123** and the page takes seconds: the web app passes the customer id as *text* (`'123'`) and the query was written around that. The `orders` table has 300 000 rows and an index on `customer_id`.
+
+  Return `id`, `created_at`, `status`, `amount` of **every order of customer 123**, newest first (`created_at` descending, then `id`).
+  Check also looks at the query plan: the answer must be served through an index, not by reading the whole `orders` table.
+solution_sql: |
+  SELECT id, created_at, status, amount FROM orders WHERE customer_id = 123 ORDER BY created_at DESC, id
+check:
+  type: plan
+  must_use: ["Index Scan|Index Only Scan|Bitmap Index Scan|Bitmap Heap Scan"]
+  must_not_use: ["Seq Scan on orders"]
+  note: "the lookup must be answered through an index on orders"
+compare: {order_matters: true}
+hints:
+  - "The index is on the integer column `customer_id`. What happens to an index when the column is wrapped in a cast or arithmetic?"
+  - "Convert the *value* you compare with, never the column: `customer_id = 123` (or `customer_id = '123'::int`)."
+trap: |
+  `WHERE customer_id::text = '123'` (or `customer_id + 0 = 123`) returns exactly the same 6 orders but the cast is applied to the column in every one of the 300 000 rows, so the btree on `customer_id` cannot be used and Postgres reads the whole table. Keep the indexed column bare and convert the constant instead.
+followup: |
+  "Is `customer_id = '123'` (a text literal) also fine?" (Yes: an untyped literal takes the column's type. A typed *parameter* of the wrong type is where the cast lands on the column.)
+alternatives:
+  - "SELECT id, created_at, status, amount FROM orders WHERE customer_id = '123'::int ORDER BY created_at DESC, id"

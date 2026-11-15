@@ -1,0 +1,38 @@
+id: ip-002
+title: Number the sessions of one user
+topic: interview-patterns
+tags: [sessionization, lag, running-sum, gaps]
+difficulty: easy
+dataset: events
+prompt: |
+  Product analytics defines a **session** as a burst of events of one user: a new session starts at the user's first event, and again whenever the gap to that user's previous event is **more than 30 minutes** (a gap of exactly 30 minutes does NOT start a new session). Events with the same timestamp are ordered by `id`.
+
+  For **user 9**, number every event with its session number (1, 2, 3, ... in time order). Show the event time **in UTC**.
+
+  Return `event_id` (the event `id`), `event_ts` (the timestamp in UTC, as a timestamp without time zone), `session_no`, ordered by `event_id`.
+solution_sql: |
+  WITH g AS (
+    SELECT id, ts, ts - lag(ts) OVER (ORDER BY ts, id) AS gap
+    FROM events WHERE user_id = 9)
+  SELECT id AS event_id,
+         ts AT TIME ZONE 'UTC' AS event_ts,
+         sum(CASE WHEN gap IS NULL OR gap > interval '30 minutes' THEN 1 ELSE 0 END) OVER (ORDER BY ts, id) AS session_no
+  FROM g
+  ORDER BY id
+compare: {order_matters: true}
+hints:
+  - "Step 1: the gap to the previous event (lag). Step 2: a 1/0 flag 'this event starts a session'. Step 3: a running sum of the flag is the session number."
+  - "The very first event has no previous event - it must still count as a session start."
+trap: |
+  Writing `gap >= interval '30 minutes'` ("30 minutes or more") instead of `>`. User 9 has several gaps of EXACTLY 30:00, so the wrong rule cuts those sessions in two: 81 sessions instead of 66. Boundary values are the whole point of this pattern: read the definition, and test the equality case.
+followup: |
+  "Why is the sum of the 1/0 flags a session number?" (Every start adds 1, so all events until the next start share the same running total - that is the island id.) "What if two events have the same timestamp?" (The order must still be deterministic, hence `ORDER BY ts, id` in every window.)
+alternatives:
+  - |
+    SELECT e.id AS event_id, e.ts AT TIME ZONE 'UTC' AS event_ts,
+           (SELECT count(*) FROM events a
+            WHERE a.user_id = 9 AND (a.ts, a.id) <= (e.ts, e.id)
+              AND NOT EXISTS (SELECT 1 FROM events p
+                              WHERE p.user_id = 9 AND (p.ts, p.id) < (a.ts, a.id)
+                                AND a.ts - p.ts <= interval '30 minutes')) AS session_no
+    FROM events e WHERE e.user_id = 9 ORDER BY e.id

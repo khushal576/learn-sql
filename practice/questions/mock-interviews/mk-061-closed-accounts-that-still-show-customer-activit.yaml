@@ -1,0 +1,27 @@
+id: mk-061
+title: "Closed accounts that still show customer activity"
+topic: mock-interviews
+tags: ["join", "filter", "group-by"]
+difficulty: easy
+dataset: bank
+prompt: |
+  Compliance: "A closed account should not see customer activity." For every account with `status = 'closed'`, count its **customer-initiated** transactions (kinds `deposit`, `withdrawal` and `purchase`; fees and interest are posted by the bank and do not count) from **2024-10-01 onwards**.
+  Return one row per closed account that has at least one such transaction: `account_id`, `customer_id`, `tx_count` and `last_activity` (the date of its latest such transaction). Order by `account_id`.
+solution_sql: |
+  SELECT a.id AS account_id, a.customer_id, count(*) AS tx_count, max(t.tx_date) AS last_activity
+  FROM accounts a
+  JOIN transactions t ON t.account_id = a.id
+  WHERE a.status = 'closed'
+    AND t.tx_date >= '2024-10-01'
+    AND t.kind IN ('deposit', 'withdrawal', 'purchase')
+  GROUP BY a.id, a.customer_id
+  ORDER BY a.id
+compare: {order_matters: true}
+hints:
+  - "Closed accounts only, transactions from the given date onwards."
+  - "Which transaction kinds does the customer initiate? Restrict the kinds before counting."
+  - "Group by the account (and its customer) to get one row per account."
+trap: |
+  Counting every transaction of the period includes fees and interest, which the bank posts by itself on closed accounts too: for example account 87 shows 7 transactions instead of its 5 customer-initiated ones, and accounts 154, 175, 264 and others change as well.
+followup: |
+  "Which of these accounts had a customer-initiated transaction AFTER a fee was charged?" Compare max dates per kind with FILTER, or use an EXISTS on the earlier fee.

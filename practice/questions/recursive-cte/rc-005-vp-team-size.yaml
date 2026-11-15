@@ -1,0 +1,32 @@
+id: rc-005
+title: Team size of each VP
+topic: recursive-cte
+tags:
+- recursive
+- hierarchy
+- count
+difficulty: medium
+dataset: hr
+prompt: |
+  HR is planning spans of control. For each **VP** (employees 2 to 6) count **everyone who reports to them directly or indirectly** (the VP is not counted).
+
+  Return `vp_id`, `vp_name`, `team_size`, ordered by `vp_id`.
+solution_sql: |
+  WITH RECURSIVE tree AS (
+    SELECT id AS vp_id, id FROM employees WHERE id BETWEEN 2 AND 6
+    UNION ALL
+    SELECT t.vp_id, e.id FROM employees e JOIN tree t ON e.manager_id = t.id
+  )
+  SELECT v.id AS vp_id, v.name AS vp_name, count(*) - 1 AS team_size
+  FROM tree t JOIN employees v ON v.id = t.vp_id
+  GROUP BY v.id, v.name
+  ORDER BY v.id
+compare:
+  order_matters: true
+hints:
+- Keep the starting VP in every row (`vp_id`) while you walk down, then GROUP BY it.
+- Do you count the VP's own anchor row?
+trap: |
+  Counting only `manager_id = vp` returns only the 4 or 5 directors per VP and ignores all the staff below them. The recursion has to carry the original VP down through every level so the final GROUP BY can count all descendants.
+followup: |
+  "Which VP has the biggest organisation?" (ORDER BY team_size DESC LIMIT 1 on the same query.)

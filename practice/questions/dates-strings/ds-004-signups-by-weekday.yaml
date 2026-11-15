@@ -1,0 +1,26 @@
+id: ds-004
+title: Signups by weekday
+topic: dates-strings
+tags: [to_char, isodow, order-by]
+difficulty: easy
+dataset: events
+prompt: |
+  The community team plans a weekly newsletter and wants to know which weekday people sign up on. Use the weekday **in UTC**, over all users.
+
+  Return `weekday` (the English name, like `Monday`, with no trailing spaces) and `signups`, ordered **Monday first, Sunday last**.
+solution_sql: |
+  SELECT to_char(d, 'FMDay') AS weekday, count(*) AS signups
+  FROM (SELECT signup_at AT TIME ZONE 'UTC' AS d FROM users) t
+  GROUP BY to_char(d, 'FMDay'), extract(isodow FROM d)
+  ORDER BY extract(isodow FROM d)
+compare: {order_matters: true}
+hints:
+  - "A weekday name sorts alphabetically, not by the calendar. Group or sort by a number."
+  - "`extract(isodow ...)` gives Monday = 1 ... Sunday = 7; `to_char(..., 'FMDay')` gives the name without padding."
+trap: |
+  `ORDER BY weekday` (or a plain `to_char(..., 'Day')`) sorts the names alphabetically: Friday, Monday, Saturday ... And `'Day'` pads every name to 9 characters (`'Monday   '`) unless you add the `FM` prefix, so a text comparison with `'Monday'` fails silently. Sort by `isodow` (Mon=1..Sun=7); plain `dow` would put Sunday = 0 first.
+followup: |
+  "Why not `extract(dow ...)`?" (`dow` numbers Sunday as 0, so Sunday would sort first; `isodow` is Monday = 1 .. Sunday = 7.)
+alternatives:
+  - |
+    SELECT trim(to_char(signup_at AT TIME ZONE 'UTC', 'Day')) AS weekday, count(*) AS signups FROM users GROUP BY 1, extract(isodow FROM signup_at AT TIME ZONE 'UTC') ORDER BY extract(isodow FROM signup_at AT TIME ZONE 'UTC')

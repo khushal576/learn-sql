@@ -1,0 +1,35 @@
+id: ja-012
+title: One JSON basket per user
+topic: json-arrays
+tags: [jsonb_object_agg, jsonb_array_elements, aggregation]
+difficulty: hard
+dataset: events
+prompt: |
+  The recommender service wants, for each customer, **one JSON object** that maps every SKU they ever bought to the **total units** over all their purchases, e.g. `{"A1": 5, "C3": 2}`.
+
+  For users with `id` up to 60 who bought something, return `user_id` and `basket` (a jsonb object `{sku: total_units}`), ordered by `user_id`.
+solution_sql: |
+  SELECT user_id, jsonb_object_agg(sku, units) AS basket
+  FROM (SELECT e.user_id, i ->> 'sku' AS sku, sum((i ->> 'qty')::int) AS units
+        FROM events e
+        CROSS JOIN LATERAL jsonb_array_elements(e.props -> 'items') AS i
+        WHERE e.name = 'purchase' AND e.user_id <= 60
+        GROUP BY 1, 2) s
+  GROUP BY user_id
+  ORDER BY user_id
+compare: {order_matters: true}
+hints:
+  - "jsonb_object_agg(key, value) is an aggregate: what does it do when a key repeats inside one group?"
+  - "Make every (user, sku) pair unique before building the object."
+trap: |
+  Feeding the exploded lines straight into `jsonb_object_agg(sku, qty)` builds the object from one entry per line; when a user bought the same SKU twice, the later key silently **overwrites** the earlier one - no error, no sum. The basket then shows the quantity of the last purchase instead of the total. Aggregate to one row per (user, sku) first, then build the object.
+followup: |
+  "Same thing with arrays?" (`jsonb_agg` would keep both entries - duplicates are preserved, which is sometimes exactly what you want.)
+alternatives:
+  - |
+    SELECT u.user_id, (SELECT jsonb_object_agg(t.sku, t.units)
+                       FROM (SELECT i ->> 'sku' AS sku, sum((i ->> 'qty')::int) AS units
+                             FROM events e2, jsonb_array_elements(e2.props -> 'items') i
+                             WHERE e2.name = 'purchase' AND e2.user_id = u.user_id GROUP BY 1) t) AS basket
+    FROM (SELECT DISTINCT user_id FROM events WHERE name = 'purchase' AND user_id <= 60) u
+    ORDER BY u.user_id

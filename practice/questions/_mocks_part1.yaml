@@ -1,0 +1,109 @@
+sets:
+- id: mock-01
+  title: 'Marketplace finance analyst: annual numbers'
+  domain: ecommerce
+  minutes: 45
+  intro: 'Hi, thanks for coming in. I''m the head of data at an online marketplace and you''d be our new finance/merchandising analyst. It is the end-of-year reporting crunch and three asks have landed on my desk, in this order: first the 2023 revenue by country for the annual report, then a payment-method breakdown for the payments team, and last a best-sellers-per-country list for merchandising. All three come from the same shop database (`customers`, `orders`, `order_items`, `products`, `payments`). Watch the joins: the numbers have to tie. Start with the easy one, keep an eye on the clock.'
+  questions:
+  - mk-001
+  - mk-002
+  - mk-003
+- id: mock-02
+  title: 'CRM analyst: customer value and loyalty'
+  domain: ecommerce
+  minutes: 45
+  intro: 'Welcome. I run the CRM and retention team at an online marketplace and we are looking for an analyst. This quarter we want to reactivate customers and reward loyal ones, so I have three requests for you, in order: first, how many customers have never really bought anything; second, where do returns hurt us most (by category); third, a profile of the buying rhythm of our most loyal customers. Everything is in the shop database (`customers`, `orders`, `order_items`, `products`, `categories`). Status matters in all three, be careful what you count as an order. We start with the quick one.'
+  questions:
+  - mk-004
+  - mk-005
+  - mk-006
+- id: mock-03
+  title: 'Catalogue analyst: reviews and departments'
+  domain: ecommerce
+  minutes: 45
+  intro: 'Hello, and thanks for making the time. I lead product analytics at an online marketplace. Next week the board reviews the catalogue and I need three things from you: a league table of our best-rated products, a check on how many reviews come from people who never actually received the product, and a revenue split by department. The tables you need are `products`, `categories`, `reviews`, `orders` and `order_items`. They are different kinds of questions, so watch the details: NULLs in the review text, order status, and a category tree of unknown depth. Let''s start with the league table.'
+  questions:
+  - mk-007
+  - mk-008
+  - mk-009
+- id: mock-04
+  title: 'People analytics: org and pay review'
+  domain: hr
+  minutes: 45
+  intro: 'Hi, I''m the head of People Analytics at a 250-person company, and you are interviewing for our analyst role. Ahead of the annual compensation review three requests are waiting: a department directory with headcount and average pay, a list of individual contributors who are paid well above their own department''s average, and the size of every leader''s organisation for the reorganisation. All of it sits in `departments` and `employees` (each employee points to a manager; the CEO has none). One department is empty on purpose. Let''s begin with the directory.'
+  questions:
+  - mk-010
+  - mk-011
+  - mk-012
+- id: mock-05
+  title: 'PMO analyst: projects, history and dependencies'
+  domain: hr
+  minutes: 45
+  intro: 'Good morning. I''m the head of the project management office. We run twelve company projects, each owned by a department but staffed from everywhere, and I need an analyst who can answer date-based questions without fooling themselves. Three requests: what was in flight on a given day, what our payroll looked like at the end of 2022 (the salary history table keeps every change), and how much each project depends on people from other departments. Tables: `projects`, `project_assignments`, `employees`, `departments`, `salary_history`. Watch for NULL end dates and for current-versus-historic values. Let''s start.'
+  questions:
+  - mk-013
+  - mk-014
+  - mk-015
+- id: mock-06
+  title: 'Retail banking analyst: balances and overdrafts'
+  domain: bank
+  minutes: 45
+  intro: 'Hello! I''m the head of analytics at a retail bank and I''m hiring an analyst for the risk and retail teams. We have 400 customers, 680 accounts (checking, savings, credit) and one year of transactions in 2024. Amounts are signed: positive money in, negative money out. Three requests this week, in order: a segment overview for the retail board, an overdraft report for risk, and a card-spend burst detector for fraud monitoring. Watch how you join and how you order transactions, because several transactions of an account share a date. Start with the overview.'
+  questions:
+  - mk-016
+  - mk-017
+  - mk-018
+- id: mock-07
+  title: 'Credit risk analyst: the loan book'
+  domain: bank
+  minutes: 45
+  intro: 'Hi, I''m the head of credit risk at a retail bank. We have 150 loans (active, paid and defaulted) and I need an analyst who is careful with numbers. Three tasks: the loan book overview I show every Monday, a review of defaulted customers (how much liquid money do they hold compared with what they owe), and finally a customer dispute where I have to rebuild the repayment schedule of two loans from first principles. Tables: `loans`, `customers`, `accounts`, `transactions`. Money is signed in `transactions`. Let''s start with the Monday overview.'
+  questions:
+  - mk-019
+  - mk-020
+  - mk-021
+- id: mock-08
+  title: 'School registrar analyst: grades and timetable'
+  domain: school
+  minutes: 45
+  intro: 'Welcome, and thanks for coming. I''m the registrar of a secondary school: 300 students, 24 courses, 12 teachers. Our data analyst role covers the reports I owe the head teacher every term. Today''s three: the distribution of letter grades on the final exams, the workload of every teacher (some have no course yet, and two courses have no teacher), and an invitation list for students who follow the whole Arts programme. Tables: `students`, `teachers`, `courses`, `enrollments`, `scores`, `grade_bands`. Enrolments can be active, completed or dropped, and only completed ones have a final exam. Start with the grades.'
+  questions:
+  - mk-022
+  - mk-023
+  - mk-024
+- id: mock-09
+  title: 'Student success analyst: load and progress'
+  domain: school
+  minutes: 45
+  intro: 'Hi, I''m the deputy head responsible for student success at a secondary school. We''re hiring a data analyst to help us look at workload and progress. I have three questions, from simple to tricky: how heavy is the course load in each school year (some students have no enrolment at all), did students improve between the midterm and the final, and who are the most improved students per course for our honour list. Data: `students`, `courses`, `enrollments` (active, completed or dropped) and `scores` (midterm and final rows; only completed enrolments have both). Let''s start with the course load.'
+  questions:
+  - mk-025
+  - mk-026
+  - mk-027
+- id: mock-10
+  title: 'Growth analyst: signup to purchase funnel'
+  domain: events
+  minutes: 45
+  intro: 'Hi, I''m the head of growth at a SaaS product. We are hiring an analyst for onboarding and conversion. We have 800 users who signed up between January and April 2024, and a table of clickstream events (`signup`, `activated`, `purchase`, `page_view`, ...) in UTC. Three questions, from the dashboard basics to a proper cohort analysis: activation rate per plan, how long users take to activate, and conversion by weekly signup cohort. Be careful: some users fire the same event twice, and some never do. Start with activation.'
+  questions:
+  - mk-028
+  - mk-029
+  - mk-030
+- id: mock-11
+  title: 'Product analyst: engagement and sessions'
+  domain: events
+  minutes: 45
+  intro: 'Welcome. I lead product analytics at a SaaS company. We have a clickstream table (`events`: signup, activated, page_view, feature_used, purchase, logout) for 800 users over four months, with timestamps in UTC. For this interview I have three questions for you: the traffic split by device, what each pro user did last, and finally an engagement profile per plan based on sessions. Careful with NULLs, with events that happen at the very same timestamp, and with exact boundaries. Start with the device split.'
+  questions:
+  - mk-031
+  - mk-032
+  - mk-033
+- id: mock-12
+  title: Subscription revenue analyst
+  domain: events
+  minutes: 45
+  intro: 'Hello! I''m the finance lead of a subscription software company and I need a revenue analyst. We keep subscriptions (plan, start day, end day, still active when the end is empty) and a purchases table in different currencies (never add different currencies together). Three tasks, rising in difficulty: how long subscriptions last, how users moved between plans between two snapshot dates, and finally which subscription plan was running at the time of every purchase, including purchases made when the user was not subscribed. Tables: `subscriptions`, `purchases`, `users`. Dates are inclusive and timestamps are in UTC. Let''s begin.'
+  questions:
+  - mk-034
+  - mk-035
+  - mk-036

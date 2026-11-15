@@ -1,0 +1,46 @@
+id: ip-028
+title: Pricing suite stays - and the nights with no rate
+topic: interview-patterns
+tags: [range-join, left-join, generate-series]
+difficulty: hard
+dataset: hotel
+prompt: |
+  Finance reprices stays from the seasonal `rate_cards` (one card per room type and date range; `valid_from` .. `valid_to` **both inclusive**). Each night `check_in .. check_out - 1`
+  of a booking is priced by the card of the room's type whose range contains that night.
+  For **confirmed bookings of suite rooms with `check_in` between 2024-08-29 and 2024-09-12 (inclusive)** return
+  `booking_id`, `nights`, `priced_nights` (nights covered by a rate card), `rate_total` (sum of those nightly rates; **0** when no night is priced) and `unpriced_nights` (nights with no rate card).
+  Order by `booking_id`. Every booking in the window must appear, including those with no rate at all.
+solution_sql: |
+  SELECT b.id AS booking_id,
+         b.check_out - b.check_in AS nights,
+         count(rc.id) AS priced_nights,
+         coalesce(sum(rc.nightly_rate), 0) AS rate_total,
+         b.check_out - b.check_in - count(rc.id) AS unpriced_nights
+  FROM bookings b
+  JOIN rooms r ON r.id = b.room_id AND r.type = 'suite'
+  CROSS JOIN LATERAL generate_series(b.check_in, b.check_out - 1, interval '1 day') AS n(night)
+  LEFT JOIN rate_cards rc ON rc.room_type = r.type AND n.night::date BETWEEN rc.valid_from AND rc.valid_to
+  WHERE b.status = 'confirmed' AND b.check_in BETWEEN DATE '2024-08-29' AND DATE '2024-09-12'
+  GROUP BY b.id, b.check_in, b.check_out
+  ORDER BY b.id
+compare: {order_matters: true}
+hints:
+  - "Expand every booking into one row per night first, then match each night to a rate card with a range condition."
+  - "Which join type keeps a night that matches no card? Think about what happens to a booking whose every night is unpriced."
+trap: |
+  An INNER join to `rate_cards` silently drops the nights in the suite rate gap (2024-09-01 .. 09-14): unpriced nights vanish from the totals, and bookings that lie entirely inside the gap
+  (e.g. booking 367) disappear from the result altogether: the window has 17 bookings and 62 nights, but an inner join keeps only 12 priced nights and 8 bookings.
+followup: |
+  "How do you stop this happening again?" Add a check that every (room type, night) has exactly one card - e.g. anti-join the calendar against rate_cards, or an exclusion constraint on daterange to forbid overlaps and a report for gaps.
+alternatives:
+  - |
+    SELECT b.id AS booking_id, b.check_out - b.check_in AS nights,
+           (SELECT count(*) FROM generate_series(b.check_in, b.check_out - 1, interval '1 day') d
+             JOIN rate_cards rc ON rc.room_type = r.type AND d::date BETWEEN rc.valid_from AND rc.valid_to)::int AS priced_nights,
+           coalesce((SELECT sum(rc.nightly_rate) FROM generate_series(b.check_in, b.check_out - 1, interval '1 day') d
+             JOIN rate_cards rc ON rc.room_type = r.type AND d::date BETWEEN rc.valid_from AND rc.valid_to), 0) AS rate_total,
+           (SELECT count(*) FROM generate_series(b.check_in, b.check_out - 1, interval '1 day') d
+             WHERE NOT EXISTS (SELECT 1 FROM rate_cards rc WHERE rc.room_type = r.type AND d::date BETWEEN rc.valid_from AND rc.valid_to))::int AS unpriced_nights
+    FROM bookings b JOIN rooms r ON r.id = b.room_id
+    WHERE r.type = 'suite' AND b.status = 'confirmed' AND b.check_in BETWEEN DATE '2024-08-29' AND DATE '2024-09-12'
+    ORDER BY b.id

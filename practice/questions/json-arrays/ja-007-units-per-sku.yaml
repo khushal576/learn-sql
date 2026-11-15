@@ -1,0 +1,28 @@
+id: ja-007
+title: Units sold per SKU
+topic: json-arrays
+tags: [jsonb_array_elements, lateral, aggregation]
+difficulty: medium
+dataset: events
+prompt: |
+  Operations wants the number of **units** sold per product. The basket of each `purchase` event is stored in `props -> 'items'`: an array of objects like `{"sku": "A1", "qty": 2}`.
+
+  Return `sku` and `units` (the sum of `qty`), ordered by `sku`.
+solution_sql: |
+  SELECT i ->> 'sku' AS sku, sum((i ->> 'qty')::int) AS units
+  FROM events e
+  CROSS JOIN LATERAL jsonb_array_elements(e.props -> 'items') AS i
+  WHERE e.name = 'purchase'
+  GROUP BY 1
+  ORDER BY 1
+compare: {order_matters: true}
+hints:
+  - "One purchase holds several items: first explode the array to one row per item."
+  - "`qty` is stored as a JSON number; `->>` gives text, so cast it."
+trap: |
+  Counting rows after the explode (`count(*)`) counts **lines**, not units: a line with `qty` 3 is worth three units, so every SKU is under-reported (A1 shows fewer lines than units sold). Read the quantity out of each element and sum it.
+followup: |
+  "What if some events had no items key?" (`jsonb_array_elements(NULL)` returns no rows, so an event without items simply vanishes; but a non-array value raises an error - guard with `WHERE jsonb_typeof(props -> 'items') = 'array'`.)
+alternatives:
+  - |
+    SELECT x.sku, sum(x.qty) AS units FROM events e, jsonb_to_recordset(e.props -> 'items') AS x(sku text, qty int) WHERE e.name = 'purchase' GROUP BY x.sku ORDER BY x.sku

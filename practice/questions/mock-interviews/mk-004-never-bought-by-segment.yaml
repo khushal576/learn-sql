@@ -1,0 +1,26 @@
+id: mk-004
+title: Customers who never really bought
+topic: mock-interviews
+tags: [anti-join, exists, conditional-count]
+difficulty: easy
+dataset: ecommerce
+prompt: |
+  The CRM team is planning a first-purchase discount. A customer **has bought** when they have at least one order with status `shipped`, `delivered` or `returned`; orders that are only `placed` or `cancelled` do not count as a purchase.
+
+  For every customer `segment` return `segment`, `customers` (all customers in the segment), `never_bought` (customers who have not bought) and `never_bought_pct` (never_bought as a percentage of customers, 0-100, rounded to 1 decimal), ordered by `segment`.
+solution_sql: |
+  SELECT c.segment,
+         count(*) AS customers,
+         count(*) FILTER (WHERE NOT EXISTS (
+             SELECT 1 FROM orders o
+             WHERE o.customer_id = c.id AND o.status IN ('shipped', 'delivered', 'returned'))) AS never_bought,
+         round(100.0 * count(*) FILTER (WHERE NOT EXISTS (
+             SELECT 1 FROM orders o
+             WHERE o.customer_id = c.id AND o.status IN ('shipped', 'delivered', 'returned'))) / count(*), 1) AS never_bought_pct
+  FROM customers c
+  GROUP BY c.segment
+  ORDER BY c.segment
+compare: {order_matters: true}
+hints: ['You need to count customers, not orders: one row per customer before grouping.', '`NOT EXISTS` (or a LEFT JOIN to a de-duplicated list of buyers) keeps customers with no matching row; the status condition belongs inside the subquery.']
+trap: 'Asking only ''does the customer have any order?'' answers a different question: 54 customers have orders that are all `placed` or `cancelled`, so they are real never-bought targets (264 in total, not 210). A plain `LEFT JOIN orders` also multiplies customers by their orders (corporate shows 2,170 customers instead of 200).'
+followup: '"Which index helps this query on a 100 million row orders table?" (`orders (customer_id)`, ideally including status: the NOT EXISTS then becomes an anti join using the index.)'

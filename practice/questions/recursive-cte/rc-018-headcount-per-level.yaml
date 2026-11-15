@@ -1,0 +1,32 @@
+id: rc-018
+title: Headcount and pay per org level
+topic: recursive-cte
+tags:
+- recursive
+- hierarchy
+- group-by
+- avg
+difficulty: hard
+dataset: hr
+prompt: |
+  The board asks for the shape of the organisation. Define the **hierarchy level** by distance from the top: the CEO (no manager) is level 1, their direct reports level 2, and so on.
+
+  Return `level`, `headcount` and `avg_salary` (rounded to 2 decimals) for every level, ordered by `level`.
+solution_sql: |
+  WITH RECURSIVE lvl AS (
+    SELECT id, 1 AS level FROM employees WHERE manager_id IS NULL
+    UNION ALL
+    SELECT e.id, l.level + 1 FROM employees e JOIN lvl l ON e.manager_id = l.id
+  )
+  SELECT l.level, count(*) AS headcount, round(avg(e.salary), 2) AS avg_salary
+  FROM lvl l JOIN employees e ON e.id = l.id
+  GROUP BY l.level ORDER BY l.level
+compare:
+  order_matters: true
+hints:
+- Derive each employee's level by recursion from the root; then it is an ordinary GROUP BY.
+- Do not trust job titles to tell you the level.
+trap: |
+  Grouping by `job_title` mixes levels: the 'Director' title is one level, but the four staff titles (Analyst, Engineer, Specialist, Associate) all sit on level 4 and would show up as four separate groups of 55 instead of one group of 220. Compute the level from the manager chain, not from a label.
+followup: |
+  "Which level has the widest span of control?" (headcount of level n+1 divided by headcount of level n.)

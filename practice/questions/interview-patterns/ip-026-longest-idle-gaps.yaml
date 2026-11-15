@@ -1,0 +1,42 @@
+id: ip-026
+title: Longest idle stretches between guests
+topic: interview-patterns
+tags: [gaps, lead, window]
+difficulty: hard
+dataset: hotel
+prompt: |
+  Revenue asks which rooms sat empty the longest **between two real stays**. For each room order its **confirmed** bookings by `check_in`;
+  the idle stretch after a booking is `next check_in - this check_out` (in nights), measured only between two consecutive confirmed bookings of the same room
+  (the time before a room's first booking or after its last one is not a gap).
+  Return the **5 longest** idle stretches: `room_id`, `gap_start` (the earlier booking's `check_out`), `gap_end` (the next booking's `check_in`) and `idle_nights`,
+  ordered by `idle_nights` descending, then `room_id`.
+solution_sql: |
+  WITH g AS (
+    SELECT room_id,
+           check_out AS gap_start,
+           lead(check_in) OVER (PARTITION BY room_id ORDER BY check_in, id) AS gap_end
+    FROM bookings
+    WHERE status = 'confirmed'
+  )
+  SELECT room_id, gap_start, gap_end, gap_end - gap_start AS idle_nights
+  FROM g
+  WHERE gap_end IS NOT NULL
+  ORDER BY idle_nights DESC, room_id
+  LIMIT 5
+compare: {order_matters: true}
+hints:
+  - "LEAD(check_in) per room gives the start of the next stay on the same row."
+  - "A room is not idle between a confirmed stay and a cancelled one that never happened - filter the status first."
+trap: |
+  Computing the gaps over all bookings (cancelled and no-show rows included) fills the real gaps: the first four rows (rooms 40, 39, 38, 37: 249, 240, 174, 172 nights) survive
+  because those rooms really had no bookings of any status in that stretch, but the 5th place changes from 54 idle nights (room 34) to a 17-night gap (several rooms tie at 17, so room 2 appears).
+followup: |
+  "Include the lead-in before the first booking and the tail after the last?" Then the start/end of the period must be added as virtual bookings (UNION ALL a sentinel row), otherwise LEAD/LAG return NULL there.
+alternatives:
+  - |
+    SELECT a.room_id, a.check_out AS gap_start, n.check_in AS gap_end, n.check_in - a.check_out AS idle_nights
+    FROM bookings a
+    JOIN LATERAL (SELECT min(check_in) AS check_in FROM bookings x
+                  WHERE x.room_id = a.room_id AND x.status = 'confirmed' AND x.check_in >= a.check_out) n ON n.check_in IS NOT NULL
+    WHERE a.status = 'confirmed' AND NOT EXISTS (SELECT 1 FROM bookings y WHERE y.room_id = a.room_id AND y.status = 'confirmed' AND y.check_in < n.check_in AND y.check_out > a.check_out)
+    ORDER BY idle_nights DESC, room_id LIMIT 5

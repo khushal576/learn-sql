@@ -1,0 +1,33 @@
+id: mk-018
+title: Peak 30-day card spend
+topic: mock-interviews
+tags: [window, range-frame, interval, top-n]
+difficulty: hard
+dataset: bank
+prompt: |
+  Fraud monitoring looks at bursts of card spending. Consider transactions of kind `purchase` (the amount is negative: spend is its absolute value). For each account, the **30-day spend** at a given purchase day D is the total spend on days **D-29 up to D inclusive** (calendar days, not a number of rows). For every account that has purchases take its **peak 30-day spend** over all its purchase days; if the peak is reached on several days, report the earliest.
+
+  Return the 10 highest: `account_id`, `window_end` (the day D of the peak) and `peak_spend_30d`, ordered by `peak_spend_30d` descending, then `account_id`.
+solution_sql: |
+  WITH daily AS (
+    SELECT account_id, tx_date, -sum(amount) AS spend
+    FROM transactions
+    WHERE kind = 'purchase'
+    GROUP BY account_id, tx_date),
+  roll AS (
+    SELECT account_id, tx_date,
+           sum(spend) OVER (PARTITION BY account_id ORDER BY tx_date
+                            RANGE BETWEEN INTERVAL '29 days' PRECEDING AND CURRENT ROW) AS spend_30d
+    FROM daily),
+  best AS (
+    SELECT *, row_number() OVER (PARTITION BY account_id ORDER BY spend_30d DESC, tx_date) AS rn
+    FROM roll)
+  SELECT account_id, tx_date AS window_end, spend_30d AS peak_spend_30d
+  FROM best
+  WHERE rn = 1
+  ORDER BY peak_spend_30d DESC, account_id
+  LIMIT 10
+compare: {order_matters: true}
+hints: [A window frame can be measured in rows (`ROWS`) or in values of the ORDER BY column (`RANGE`)., 'Several purchases on one day: aggregate by day first, or let RANGE treat them as peers.']
+trap: A frame of `ROWS BETWEEN 29 PRECEDING AND CURRENT ROW` covers the last 30 *purchase days*, not the last 30 *calendar days*; with purchases a few weeks apart it adds up months of spend. The wrong query reports a top value of 1,299.00 for account 418 while the real peak 30-day spend in the whole bank is 402.00 (account 378). Use `RANGE BETWEEN INTERVAL '29 days' PRECEDING AND CURRENT ROW` on a date column.
+followup: '"How would you alert in real time instead of nightly?" (Keep a rolling aggregate per account in a stream processor with a time-based window; the SQL frame logic is the same idea.)'

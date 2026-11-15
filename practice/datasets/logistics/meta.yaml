@@ -1,0 +1,3 @@
+name: logistics
+title: Parcel logistics
+description: A delivery company with a region tree, a directed hub route graph (with cycles), nested packaging, a driver hierarchy and a year of trips. Built for recursive CTE practice.

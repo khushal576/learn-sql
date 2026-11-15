@@ -1,0 +1,36 @@
+id: mk-039
+title: "How many hops to reach every hub"
+topic: mock-interviews
+tags: ["recursive", "graph", "cycles", "window"]
+difficulty: hard
+dataset: logistics
+prompt: |
+  Dana: "Last topic. Our `routes` table is a directed road graph and it contains loops (for example hub 4 -> 5 -> 6 -> 4). I want a profile of the network seen from the main hub 1:
+  how quickly do we reach everything?" For every hub except hub 1 that can be reached from hub 1 by following the directed routes, find the **fewest hops** (legs, one route row = one hop) needed.
+  Then summarise by hop count: return `hops`, `new_hubs` (hubs whose fewest hop count is exactly this number) and `reachable_so_far` (running total of `new_hubs` up to and including this row).
+  Order by `hops`. Hubs that cannot be reached are simply not counted.
+solution_sql: |
+  WITH RECURSIVE walk AS (
+    SELECT 1 AS hub, 0 AS hops, ARRAY[1] AS path
+    UNION ALL
+    SELECT r.to_hub, w.hops + 1, w.path || r.to_hub
+    FROM walk w JOIN routes r ON r.from_hub = w.hub
+    WHERE r.to_hub <> ALL (w.path)
+  ), first_hit AS (
+    SELECT hub, min(hops) AS hops FROM walk GROUP BY hub
+  )
+  SELECT hops, count(*) AS new_hubs, sum(count(*)) OVER (ORDER BY hops) AS reachable_so_far
+  FROM first_hit
+  WHERE hub <> 1
+  GROUP BY hops
+  ORDER BY hops
+compare: {order_matters: true}
+hints:
+  - "A recursive CTE that walks routes needs protection against the loops: carry the visited path in an array and refuse to step onto a hub already in it."
+  - "The walk finds the same hub on many different paths with different hop counts: reduce it to one row per hub (the minimum) BEFORE you summarise by hop count."
+  - "A running total over an aggregate: sum(count(*)) OVER (ORDER BY hops)."
+trap: |
+  Counting the walk rows per hop count (e.g. SELECT DISTINCT hub, hops) lets a hub appear at every hop count at which some path reaches it, so the table claims 111 'reachable' hubs in total instead of the real 27.
+  You must keep only each hub's minimum hop count first. (And an unprotected recursive walk never ends because of the cycles 4>5>6>4, 6>17>18>19>6, 22>23>24>25>22.)
+followup: |
+  "Now give me the km of the shortest route to each hub, not the fewest hops." Carry a km total in the walk and take min(km); note the hop-optimal and km-optimal routes can differ.

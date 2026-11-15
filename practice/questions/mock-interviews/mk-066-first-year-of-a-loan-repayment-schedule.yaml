@@ -1,0 +1,44 @@
+id: mk-066
+title: "First year of a loan repayment schedule"
+topic: mock-interviews
+tags: ["recursive", "amortization", "numeric"]
+difficulty: hard
+dataset: bank
+prompt: |
+  Omar: "The core system prints a repayment schedule for **loan 3**; I want to reproduce its first 12 months."
+  Use loan 3's `principal`, `annual_rate` (percent per year) and `term_months`. Monthly rate `r = annual_rate / 100 / 12`. The fixed monthly payment is
+  `pmt = round(principal * r / (1 - (1 + r)^(-term_months)), 2)`. Each month: `interest = round(opening_balance * r, 2)` on the **opening balance of that month**, `principal_paid = pmt - interest`, and the balance after the payment is `opening_balance - principal_paid`.
+  Month 1 starts with the full principal. Return 12 rows: `month_no` (1-12), `interest`, `principal_paid` and `balance_after`, ordered by `month_no`. (Do not round the balance itself - only the interest, as stated.)
+solution_sql: |
+  WITH RECURSIVE l AS (
+    SELECT principal AS p, annual_rate / 1200.0 AS r, term_months AS n FROM loans WHERE id = 3
+  ), pm AS (
+    SELECT p, r, round(p * r / (1 - power(1 + r, -n)), 2) AS pmt FROM l
+  ), s AS (
+    SELECT 1 AS month_no,
+           round(p * r, 2) AS interest,
+           pmt - round(p * r, 2) AS principal_paid,
+           p - (pmt - round(p * r, 2)) AS balance_after,
+           r, pmt
+    FROM pm
+    UNION ALL
+    SELECT month_no + 1,
+           round(balance_after * r, 2),
+           pmt - round(balance_after * r, 2),
+           balance_after - (pmt - round(balance_after * r, 2)),
+           r, pmt
+    FROM s
+    WHERE month_no < 12
+  )
+  SELECT month_no, interest, principal_paid, balance_after
+  FROM s
+  ORDER BY month_no
+compare: {order_matters: true}
+hints:
+  - "Each month depends on the previous month's balance: that is a recursive CTE with the balance as the carried column."
+  - "Compute the fixed payment once (separate CTE) and carry it - and the monthly rate - through the recursion."
+  - "Interest is charged on the OPENING balance of the month, i.e. the balance_after of the previous row."
+trap: |
+  Charging interest on the original principal every month (a flat-interest shortcut, 45.11 each month) ignores that the balance falls: the correct interest shrinks from 45.11 in month 1 to 35.85 in month 12, and the balance after month 12 is 5,997.15, not what a flat schedule shows.
+followup: |
+  "How would you get the total interest over the whole term?" Run the recursion to month = term_months (the last payment then needs a small adjustment for rounding) and sum(interest) - or use the closed form term * pmt - principal.

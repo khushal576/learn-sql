@@ -1,0 +1,39 @@
+id: ip-012
+title: Users with two or more real streaks
+topic: interview-patterns
+tags: [gaps-and-islands, streak, having, count-streaks]
+difficulty: hard
+dataset: events
+prompt: |
+  Retention wants the **comeback users** among users **1 to 300**: people who had **at least two separate streaks of 3 days or more**. A user is **active on a day** if they have at least one event on that calendar day **in UTC**; a streak is a run of consecutive active days; two streaks are separate when at least one inactive day lies between them.
+
+  Return `user_id` and `long_streaks` (how many streaks of 3+ days the user had), ordered by `long_streaks` descending, then `user_id`.
+solution_sql: |
+  WITH d AS (
+    SELECT DISTINCT user_id, (ts AT TIME ZONE 'UTC')::date AS day
+    FROM events WHERE user_id <= 300),
+  i AS (
+    SELECT user_id, day - (row_number() OVER (PARTITION BY user_id ORDER BY day))::int AS island FROM d),
+  s AS (
+    SELECT user_id, island, count(*) AS days FROM i GROUP BY user_id, island)
+  SELECT user_id, count(*) AS long_streaks
+  FROM s
+  WHERE days >= 3
+  GROUP BY user_id
+  HAVING count(*) >= 2
+  ORDER BY long_streaks DESC, user_id
+compare: {order_matters: true}
+hints:
+  - "Two levels of grouping: first per (user, island) to get each streak's length, then per user to count the streaks that are long enough."
+  - "The `days >= 3` condition belongs to the streaks, the `>= 2` condition to the number of streaks."
+trap: |
+  Counting islands without the length filter (`HAVING count(*) >= 2` on all streaks) treats a lone one-day visit as a streak: a user with one real streak plus a stray day qualifies, and the list grows to 184 users instead of 75. The other tempting shortcut, `HAVING count(DISTINCT day) >= 6` (100 users), only counts active days and cannot tell one 6-day streak from two 3-day streaks. Filter the streaks by length BEFORE counting them.
+followup: |
+  "Where does a `WHERE` vs a `HAVING` go here?" (`WHERE days >= 3` filters streak rows before counting; `HAVING count(*) >= 2` filters users after counting.) "How to list the dates of their second streak?" (`row_number() OVER (PARTITION BY user_id ORDER BY streak_start)` on the filtered streaks, then take 2.)
+alternatives:
+  - |
+    WITH d AS (SELECT DISTINCT user_id, (ts AT TIME ZONE 'UTC')::date AS day FROM events WHERE user_id <= 300),
+    f AS (SELECT user_id, day, CASE WHEN day - lag(day) OVER (PARTITION BY user_id ORDER BY day) = 1 THEN 0 ELSE 1 END AS st FROM d),
+    g AS (SELECT user_id, sum(st) OVER (PARTITION BY user_id ORDER BY day) AS run FROM f),
+    c AS (SELECT user_id, run FROM g GROUP BY user_id, run HAVING count(*) >= 3)
+    SELECT user_id, count(*) AS long_streaks FROM c GROUP BY user_id HAVING count(*) >= 2 ORDER BY 2 DESC, 1

@@ -1,0 +1,34 @@
+id: dm-007
+title: Employees whose salary column disagrees with the history
+topic: data-modelling
+tags: [denormalisation, as-of, row-number]
+difficulty: medium
+dataset: hr
+prompt: |
+  `employees.salary` is meant to be a copy of the salary valid today, which is the **latest `salary_history` row with `effective_date` on or before 2024-06-30** (the history also holds some future-dated raises that have not happened yet).
+
+  List the employees whose stored salary **differs** from that value.
+
+  Return `id`, `stored_salary` and `history_salary`, ordered by `id`.
+solution_sql: |
+  SELECT e.id, e.salary AS stored_salary, h.salary AS history_salary
+  FROM employees e
+  JOIN LATERAL (SELECT salary FROM salary_history
+                WHERE emp_id = e.id AND effective_date <= DATE '2024-06-30'
+                ORDER BY effective_date DESC LIMIT 1) h ON true
+  WHERE e.salary <> h.salary
+  ORDER BY e.id
+compare: {order_matters: true}
+hints:
+  - "Pick, per employee, ONE history row: which one, and when does the date filter belong?"
+trap: |
+  Taking the latest history row without the date filter picks up the future-dated raises (35 history rows are after 2024-06-30), so employees whose raise has not started yet are reported against the wrong value. The "as of" date is part of the definition of "current".
+followup: |
+  "Which index serves this lookup?" (`salary_history (emp_id, effective_date)` - already the primary key - lets the lateral subquery read one row per employee in index order.)
+alternatives:
+  - |
+    SELECT id, stored_salary, history_salary FROM (
+      SELECT e.id, e.salary AS stored_salary, h.salary AS history_salary,
+             row_number() OVER (PARTITION BY e.id ORDER BY h.effective_date DESC) AS rn
+      FROM employees e JOIN salary_history h ON h.emp_id = e.id AND h.effective_date <= DATE '2024-06-30') x
+    WHERE rn = 1 AND stored_salary <> history_salary ORDER BY id

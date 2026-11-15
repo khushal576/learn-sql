@@ -1,0 +1,27 @@
+id: mk-025
+title: Course load per grade level
+topic: mock-interviews
+tags: [left-join, anti-join, denominator, filter]
+difficulty: easy
+dataset: school
+prompt: |
+  The timetable committee studies how busy each school year is. For every `grade` level (9-12) return:
+
+  - `students`: number of students in that grade (all of them)
+  - `without_enrolment`: how many of them have **no enrolment at all**
+  - `active_courses_per_student`: the number of `active` enrolments of the grade divided by the number of ALL students of the grade (so students without enrolments count as 0), rounded to 2 decimals
+
+  Order by `grade`.
+solution_sql: |
+  SELECT s.grade,
+         count(*) AS students,
+         count(*) FILTER (WHERE NOT EXISTS (SELECT 1 FROM enrollments e WHERE e.student_id = s.id)) AS without_enrolment,
+         round(1.0 * (SELECT count(*) FROM enrollments e2 JOIN students s2 ON s2.id = e2.student_id
+                      WHERE s2.grade = s.grade AND e2.status = 'active') / count(*), 2) AS active_courses_per_student
+  FROM students s
+  GROUP BY s.grade
+  ORDER BY s.grade
+compare: {order_matters: true}
+hints: ['Which students must be in the denominator?', A student with no enrolment disappears from any inner join with `enrollments`.]
+trap: 'Joining students to enrolments (inner join) silently removes the 10 students that have no enrolment (3 in grade 9, 2 in grade 10, 2 in grade 11, 3 in grade 12): grade 9 shows 72 students instead of 75, `without_enrolment` can never be found, and the average load is inflated (1.82 instead of 1.75 for grade 9).'
+followup: '"How would you find these students quickly on 10 million enrolments?" (`NOT EXISTS` on an index on `enrollments(student_id)`: an anti join that stops at the first match.)'

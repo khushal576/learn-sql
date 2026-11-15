@@ -1,0 +1,35 @@
+id: mk-045
+title: "Hubs with many alternative routes"
+topic: mock-interviews
+tags: ["recursive", "graph", "cycles", "path-count"]
+difficulty: hard
+dataset: logistics
+prompt: |
+  Priya: "A hub that can be reached in only one or two ways is a single point of failure. Which hubs have plenty of alternatives?"
+  Starting at the main hub 1, count the **distinct cycle-free routes** (a route is a sequence of hubs following directed `routes` rows that never visits the same hub twice) to every other hub.
+  Return `hub_id`, `route_count` and `cheapest_km` (the lowest total km over those routes) for the hubs that have **at least 5** such routes, ordered by `route_count` descending, then `hub_id`.
+  The graph contains loops, so a naive walk would never terminate.
+solution_sql: |
+  WITH RECURSIVE walk AS (
+    SELECT 1 AS hub, 0 AS km, ARRAY[1] AS path
+    UNION ALL
+    SELECT r.to_hub, w.km + r.km, w.path || r.to_hub
+    FROM walk w JOIN routes r ON r.from_hub = w.hub
+    WHERE r.to_hub <> ALL (w.path)
+  )
+  SELECT hub AS hub_id, count(*) AS route_count, min(km) AS cheapest_km
+  FROM walk
+  WHERE hub <> 1
+  GROUP BY hub
+  HAVING count(*) >= 5
+  ORDER BY route_count DESC, hub
+compare: {order_matters: true}
+hints:
+  - "Carry the visited hubs in an array and only step to a hub that is not in it - that both stops the loops and defines 'cycle-free'."
+  - "Every row of the walk is one distinct route from hub 1 to that row's hub: count them per hub."
+  - "HAVING filters groups after counting."
+trap: |
+  Capping the walk with a depth limit (at most 4 hops) instead of tracking visited hubs both truncates the long routes and miscounts: hubs 22-25 and 28 (reached only through longer routes) vanish, and the walks that circle a loop are counted as routes (hub 4 gets 15 'routes' instead of 5).
+  A guard that only compares with the previous hub does not stop the loops, and the query runs until the timeout.
+followup: |
+  "Which hubs sit on EVERY route to hub 16 (our real single points of failure)?" Keep the path array, unnest it per route and count in how many routes each hub appears versus the route total.

@@ -1,0 +1,33 @@
+id: ip-001
+title: Days with no signups
+topic: interview-patterns
+tags: [calendar, generate-series, anti-join, gaps]
+difficulty: easy
+dataset: events
+prompt: |
+  Growth is writing the Q1 report for the product (data window **2024-01-01 to 2024-04-30**, every date taken **in UTC**).
+  They want to know on which calendar days **nobody signed up** (no event named `signup`). A day without any signup row cannot be found by looking at the signup rows alone.
+
+  Return one column `day` (a `date`), ordered by `day`.
+solution_sql: |
+  SELECT d::date AS day
+  FROM (SELECT date '2024-01-01' + n AS d FROM generate_series(0, 120) n) c
+  WHERE NOT EXISTS (
+    SELECT 1 FROM events e
+    WHERE e.name = 'signup' AND (e.ts AT TIME ZONE 'UTC')::date = c.d)
+  ORDER BY 1
+compare: {order_matters: true}
+hints:
+  - "The days you are looking for have no row at all, so you need a table of ALL days to start from."
+  - "generate_series gives you the calendar; then ask which calendar days have no matching signup (NOT EXISTS or LEFT JOIN ... IS NULL)."
+trap: |
+  The data-only approach - take the distinct signup days and look at the jump between neighbours with `lag` - finds no missing day at all, because the signups are dense from 2024-01-01 and then simply STOP on 2024-04-09. The 21 empty days (2024-04-10 to 2024-04-30) all sit after the last signup, i.e. at the edge, where there is no "next row" to compare with. Gaps need a calendar to be measured against.
+followup: |
+  "Same question but for gaps in the middle only?" (Then the lag/lead difference works: `day - lag(day) > 1`.) "How would you list missing days per user?" (Cross join users with the calendar, then anti-join.)
+alternatives:
+  - |
+    SELECT g.d::date AS day
+    FROM generate_series('2024-01-01'::date, '2024-04-30'::date, interval '1 day') g(d)
+    EXCEPT
+    SELECT (ts AT TIME ZONE 'UTC')::date FROM events WHERE name = 'signup'
+    ORDER BY 1

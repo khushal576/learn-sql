@@ -1,0 +1,28 @@
+id: mk-003
+title: Top 3 products per country, ties included
+topic: mock-interviews
+tags: [window, rank, ties, top-n]
+difficulty: hard
+dataset: ecommerce
+prompt: |
+  Merchandising wants the **best sellers per country in 2024**. Use delivered orders placed in calendar year 2024. For each customer `country` rank products by total `quantity` sold (most first) with the standard ranking where products that sell the same number of units **share the same rank** (1, 2, 2, 4 ...). Return everything whose rank is **3 or better**, so a tie for 3rd place shows all tied products.
+
+  Return `country`, `rank`, `product_id`, `name`, `units`, ordered by `country`, `rank`, `product_id`.
+solution_sql: |
+  WITH u AS (
+    SELECT c.country, i.product_id, sum(i.quantity) AS units
+    FROM orders o
+    JOIN customers c ON c.id = o.customer_id
+    JOIN order_items i ON i.order_id = o.id
+    WHERE o.status = 'delivered' AND o.order_date >= '2024-01-01' AND o.order_date < '2025-01-01'
+    GROUP BY c.country, i.product_id),
+  r AS (
+    SELECT *, rank() OVER (PARTITION BY country ORDER BY units DESC) AS rnk FROM u)
+  SELECT r.country, r.rnk AS rank, r.product_id, p.name, r.units
+  FROM r JOIN products p ON p.id = r.product_id
+  WHERE r.rnk <= 3
+  ORDER BY r.country, r.rnk, r.product_id
+compare: {order_matters: true}
+hints: ['Aggregate to (country, product) first, then rank in a second step; a window function cannot be filtered in the same SELECT''s WHERE.', 'Which ranking function leaves the same number for equal values: `row_number`, `rank` or `dense_rank`?']
+trap: '`row_number()` always hands out distinct numbers, so products tied on units get cut off arbitrarily: it returns only 24 rows while the correct answer has 36 (several countries have two or three products tied for 2nd or 3rd). `rank()` keeps all ties; `dense_rank()` would keep even more (rank 3 would be the third distinct unit count).'
+followup: '"What changes if the business wants exactly three products per country?" (Then you need a deterministic tie-break such as revenue or product id with `row_number()`: the business rule decides the function.)'

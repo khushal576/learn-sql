@@ -1,0 +1,48 @@
+id: dm-004
+title: Preview a salary upsert before running it
+topic: data-modelling
+tags: [upsert, is-distinct-from, "null", left-join]
+difficulty: medium
+dataset: hr
+prompt: |
+  Payroll will load a staging file into `employees` with an upsert (`INSERT ... ON CONFLICT (id) DO UPDATE`). Before anybody runs it, they want a **preview** of what each incoming row would do. The staging rows (`id`, `salary`, `commission`) are:
+
+  | id | salary | commission |
+  |---|---|---|
+  | 7 | 124900.00 | NULL |
+  | 8 | 130000.00 | NULL |
+  | 9 | 126300.00 | 500.00 |
+  | 10 | 127000.00 | NULL |
+  | 36 | 72868.00 | 612.00 |
+  | 45 | 81085.00 | NULL |
+  | 251 | 50000.00 | NULL |
+  | 252 | 51000.00 | 100.00 |
+
+  An incoming row is an **`insert`** when its `id` does not exist yet, an **`update`** when the id exists and the salary **or** the commission would change (NULL -> a value and value -> NULL are changes), and **`unchanged`** otherwise.
+
+  Return `id` and `action`, ordered by `id`.
+solution_sql: |
+  SELECT s.id,
+         CASE WHEN e.id IS NULL THEN 'insert'
+              WHEN (e.salary, e.commission) IS DISTINCT FROM (s.salary, s.commission) THEN 'update'
+              ELSE 'unchanged' END AS action
+  FROM (VALUES (7, 124900.00, NULL::numeric), (8, 130000.00, NULL), (9, 126300.00, 500.00),
+               (10, 127000.00, NULL), (36, 72868.00, 612.00), (45, 81085.00, NULL),
+               (251, 50000.00, NULL), (252, 51000.00, 100.00)) AS s(id, salary, commission)
+  LEFT JOIN employees e ON e.id = s.id
+  ORDER BY s.id
+compare: {order_matters: true}
+hints:
+  - "A preview is a SELECT: put the staging rows in a VALUES list and compare them with the table."
+  - "Which join keeps staging rows that have no match? And what does `<>` return when one side is NULL?"
+trap: |
+  `e.salary <> s.salary OR e.commission <> s.commission` is NULL (not true) whenever a commission is NULL on either side, so employees 9 (commission NULL -> 500) and 45 (commission 765 -> NULL) are previewed as `unchanged` and the real upsert would be trusted to leave them alone. `IS DISTINCT FROM` treats NULL as a comparable value.
+followup: |
+  "How do you make the real upsert skip unchanged rows?" (Add `WHERE (employees.salary, employees.commission) IS DISTINCT FROM (EXCLUDED.salary, EXCLUDED.commission)` to the DO UPDATE - no pointless row versions, no wasted WAL.)
+alternatives:
+  - |
+    SELECT s.id, CASE WHEN NOT EXISTS (SELECT 1 FROM employees e WHERE e.id = s.id) THEN 'insert'
+                      WHEN EXISTS (SELECT 1 FROM employees e WHERE e.id = s.id AND e.salary IS NOT DISTINCT FROM s.salary AND e.commission IS NOT DISTINCT FROM s.commission) THEN 'unchanged'
+                      ELSE 'update' END AS action
+    FROM (VALUES (7, 124900.00, NULL::numeric), (8, 130000.00, NULL), (9, 126300.00, 500.00), (10, 127000.00, NULL), (36, 72868.00, 612.00), (45, 81085.00, NULL), (251, 50000.00, NULL), (252, 51000.00, 100.00)) AS s(id, salary, commission)
+    ORDER BY s.id

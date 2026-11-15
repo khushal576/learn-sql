@@ -1,0 +1,27 @@
+id: mk-036
+title: Which plan earned the purchases?
+topic: mock-interviews
+tags: [range-join, left-join, timestamptz, attribution]
+difficulty: hard
+dataset: events
+prompt: |
+  Revenue wants to attribute every purchase to the subscription that was running **on the day of the purchase**. The day is the purchase `ts` converted to a date **in UTC** (`(ts AT TIME ZONE 'UTC')::date`). A subscription covers the purchase when `started_on <= day` and (`ended_on IS NULL` or `ended_on >= day`). Purchases that fall on no subscription belong to the label `no subscription`. (Currencies differ between users: never add amounts of different currencies.)
+
+  Return `subscription_plan`, `currency`, `purchases` (rows), `buyers` (distinct users) and `revenue` (sum of `amount` in that currency), ordered by `subscription_plan`, `currency`.
+solution_sql: |
+  SELECT coalesce(s.plan, 'no subscription') AS subscription_plan,
+         p.currency,
+         count(*) AS purchases,
+         count(DISTINCT p.user_id) AS buyers,
+         sum(p.amount) AS revenue
+  FROM purchases p
+  LEFT JOIN subscriptions s
+         ON s.user_id = p.user_id
+        AND (p.ts AT TIME ZONE 'UTC')::date >= s.started_on
+        AND (s.ended_on IS NULL OR (p.ts AT TIME ZONE 'UTC')::date <= s.ended_on)
+  GROUP BY coalesce(s.plan, 'no subscription'), p.currency
+  ORDER BY subscription_plan, p.currency
+compare: {order_matters: true}
+hints: ['Which join type keeps purchases that match nothing?', 'Dates and timestamptz: convert explicitly, and compare dates with dates.']
+trap: 'An inner join to `subscriptions` drops every purchase made outside a subscription: 849 of the 1,632 purchases (more than half) disappear, the `no subscription` rows (8 currencies) are missing and the revenue report is 16 rows short of 8. Also treat the open-ended subscriptions (`ended_on` NULL) explicitly: `ended_on >= day` is NULL for them.'
+followup: '"What if a purchase can match two subscriptions?" (Check first that the ranges do not overlap: a `GROUP BY purchase id HAVING count(*) > 1`; here none do, but the query would silently double the revenue otherwise.)'

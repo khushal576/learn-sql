@@ -1,0 +1,25 @@
+id: mk-064
+title: "Active loan book per segment"
+topic: mock-interviews
+tags: ["join", "fan-out", "group-by"]
+difficulty: easy
+dataset: bank
+prompt: |
+  Omar: "How big is our **active** loan book per customer segment?" Consider loans with `status = 'active'` only.
+  Return `segment`, `active_loans` (number of loans) and `total_principal` (sum of `principal`), one row per segment that has active loans, ordered by `segment`.
+solution_sql: |
+  SELECT c.segment, count(*) AS active_loans, sum(l.principal) AS total_principal
+  FROM loans l
+  JOIN customers c ON c.id = l.customer_id
+  WHERE l.status = 'active'
+  GROUP BY c.segment
+  ORDER BY c.segment
+compare: {order_matters: true}
+hints:
+  - "A loan belongs to one customer; the customer has the segment."
+  - "Do you need the accounts table at all?"
+  - "Aggregate after joining only the tables you need."
+trap: |
+  Going through `accounts` (customer -> accounts -> loans) repeats a loan once for every account its customer holds, so the loan count and the principal are inflated: retail shows 107 loans and 2,811,430.00 instead of the real 75 and 2,008,145.00.
+followup: |
+  "Average interest rate per segment - weighted by principal." sum(principal * annual_rate) / sum(principal): the plain avg() treats a 5,000 loan like a 50,000 one.

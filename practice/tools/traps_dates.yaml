@@ -1,0 +1,80 @@
+ds-001:
+  wrong: |
+    SELECT (signup_at AT TIME ZONE 'UTC')::date AS signup_date, count(*) AS signups FROM users WHERE signup_at BETWEEN '2024-03-01' AND '2024-03-31' GROUP BY 1 ORDER BY 1
+  right: |
+    SELECT d AS signup_date, count(*) AS signups FROM (SELECT (signup_at AT TIME ZONE 'UTC')::date AS d FROM users) t WHERE d >= date '2024-03-01' AND d < date '2024-04-01' GROUP BY d ORDER BY d
+ds-002:
+  wrong: |
+    SELECT id FROM users WHERE email IN ('maya.kim1@mail.test', 'liam.chen2@corp.example', 'sofia.novak3@example.com', 'zara.smith5@corp.example', 'mei.muller7@mail.test', 'jon.silva28@mail.test', 'ana.muller29@corp.example', 'kofi.garcia30@example.com', 'nobody@mail.test') ORDER BY id
+  right: |
+    SELECT id FROM users WHERE lower(btrim(email)) = ANY (ARRAY['maya.kim1@mail.test', 'liam.chen2@corp.example', 'sofia.novak3@example.com', 'zara.smith5@corp.example', 'mei.muller7@mail.test', 'jon.silva28@mail.test', 'ana.muller29@corp.example', 'kofi.garcia30@example.com', 'nobody@mail.test']) ORDER BY id
+ds-003:
+  wrong: |
+    SELECT id, full_name, initcap(trim(full_name)) AS clean_name FROM users WHERE id <= 60 AND full_name <> initcap(trim(full_name)) ORDER BY id
+  right: |
+    SELECT id, full_name, regexp_replace(initcap(btrim(full_name)), ' {2,}', ' ', 'g') AS clean_name FROM users WHERE id <= 60 AND full_name <> regexp_replace(initcap(btrim(full_name)), ' {2,}', ' ', 'g') ORDER BY id
+ds-004:
+  wrong: |
+    SELECT trim(to_char(signup_at AT TIME ZONE 'UTC', 'Day')) AS weekday, count(*) AS signups FROM users GROUP BY 1 ORDER BY 1
+  right: |
+    SELECT trim(to_char(signup_at AT TIME ZONE 'UTC', 'Day')) AS weekday, count(*) AS signups FROM users GROUP BY 1, extract(isodow FROM signup_at AT TIME ZONE 'UTC') ORDER BY extract(isodow FROM signup_at AT TIME ZONE 'UTC')
+ds-005:
+  wrong: |
+    SELECT tz, count(*) AS shifted_users FROM users WHERE (signup_at AT TIME ZONE tz)::date <> (signup_at AT TIME ZONE 'UTC')::date GROUP BY tz ORDER BY shifted_users DESC, tz
+  right: |
+    SELECT tz, sum(CASE WHEN (signup_at AT TIME ZONE tz)::date <> (signup_at AT TIME ZONE 'UTC')::date THEN 1 ELSE 0 END) AS shifted_users FROM users GROUP BY tz ORDER BY shifted_users DESC, tz
+ds-006:
+  wrong: |
+    SELECT ((extract(hour FROM e.ts AT TIME ZONE 'UTC')::int + 5) % 24) AS local_hour, count(*) AS events FROM events e JOIN users u ON u.id = e.user_id WHERE u.tz = 'Asia/Kolkata' GROUP BY 1 ORDER BY 1
+  right: |
+    SELECT date_part('hour', (e.ts AT TIME ZONE 'UTC') + interval '5 hours 30 minutes')::int AS local_hour, count(*) AS events FROM events e WHERE e.user_id IN (SELECT id FROM users WHERE tz = 'Asia/Kolkata') GROUP BY 1 ORDER BY 1
+ds-007:
+  wrong: |
+    SELECT extract(hour FROM (e.ts AT TIME ZONE 'UTC') - interval '5 hours')::int AS local_hour, count(*) AS events FROM events e JOIN users u ON u.id = e.user_id WHERE u.tz = 'America/New_York' AND ((e.ts AT TIME ZONE 'UTC') - interval '5 hours')::date = date '2024-03-10' GROUP BY 1 ORDER BY 1
+  right: |
+    SELECT date_part('hour', e.ts AT TIME ZONE 'America/New_York')::int AS local_hour, count(*) AS events FROM events e WHERE e.user_id IN (SELECT id FROM users WHERE tz = 'America/New_York') AND e.ts >= timestamptz '2024-03-10 00:00 America/New_York' AND e.ts < timestamptz '2024-03-11 00:00 America/New_York' GROUP BY 1 ORDER BY 1
+ds-008:
+  wrong: |
+    SELECT id AS user_id, (extract(month FROM date '2024-04-10') - extract(month FROM signup_at AT TIME ZONE 'UTC'))::int AS months FROM users WHERE id <= 30 ORDER BY id
+  right: |
+    SELECT id AS user_id, ((extract(year FROM date '2024-04-10') - extract(year FROM s)) * 12 + extract(month FROM date '2024-04-10') - extract(month FROM s) - CASE WHEN extract(day FROM date '2024-04-10') < extract(day FROM s) THEN 1 ELSE 0 END)::int AS months FROM (SELECT id, (signup_at AT TIME ZONE 'UTC')::date AS s FROM users WHERE id <= 30) t ORDER BY id
+ds-009:
+  wrong: |
+    SELECT date_trunc('week', ts AT TIME ZONE 'UTC')::date AS week_start, count(DISTINCT user_id) AS active_users FROM events WHERE ts >= timestamptz '2024-01-01 00:00+00' AND ts < timestamptz '2024-03-01 00:00+00' GROUP BY 1 ORDER BY 1
+  right: |
+    SELECT (d - extract(dow FROM d)::int)::date AS week_start, count(DISTINCT user_id) AS active_users FROM (SELECT user_id, (ts AT TIME ZONE 'UTC')::date AS d FROM events WHERE ts >= timestamptz '2024-01-01 00:00+00' AND ts < timestamptz '2024-03-01 00:00+00') t GROUP BY 1 ORDER BY 1
+ds-010:
+  wrong: |
+    SELECT id, right(regexp_replace(phone, '\D', ''), 10) AS national_number FROM users WHERE id <= 40 AND phone IS NOT NULL ORDER BY id
+  right: |
+    SELECT id, right(translate(phone, '+()-. ', ''), 10) AS national_number FROM users WHERE id <= 40 AND phone IS NOT NULL ORDER BY id
+ds-011:
+  wrong: |
+    SELECT lower(trim(split_part(email, '@', 2))) AS domain, count(*) AS users FROM users GROUP BY split_part(email, '@', 2) ORDER BY users DESC LIMIT 1
+  right: |
+    SELECT domain, users FROM (SELECT split_part(lower(btrim(email)), '@', 2) AS domain, count(*) AS users, rank() OVER (ORDER BY count(*) DESC) AS rk FROM users GROUP BY 1) t WHERE rk = 1 ORDER BY domain
+ds-012:
+  wrong: |
+    SELECT id, coalesce(array_to_string(tags, ','), '(none)') AS tag_list FROM users WHERE id <= 25 ORDER BY id
+  right: |
+    SELECT id, coalesce(nullif((SELECT string_agg(t, ',' ORDER BY t COLLATE "C") FROM unnest(tags) t), ''), '(none)') AS tag_list FROM users WHERE id <= 25 ORDER BY id
+ds-013:
+  wrong: |
+    SELECT b.user_id, b.signup_date, b.last_purchase_date, (SELECT count(*) FROM generate_series(0, b.last_purchase_date - b.signup_date) g(i) WHERE extract(isodow FROM b.signup_date + g.i) < 6)::int AS business_days FROM (SELECT p.user_id, (u.signup_at AT TIME ZONE 'UTC')::date AS signup_date, (max(p.ts) AT TIME ZONE 'UTC')::date AS last_purchase_date FROM purchases p JOIN users u ON u.id = p.user_id GROUP BY p.user_id, u.signup_at ORDER BY p.user_id LIMIT 20) b ORDER BY b.user_id
+  right: |
+    WITH b AS (SELECT p.user_id, (u.signup_at AT TIME ZONE 'UTC')::date AS s, (max(p.ts) AT TIME ZONE 'UTC')::date AS l FROM purchases p JOIN users u ON u.id = p.user_id GROUP BY p.user_id, u.signup_at ORDER BY p.user_id LIMIT 20) SELECT b.user_id, b.s AS signup_date, b.l AS last_purchase_date, count(d.day)::int AS business_days FROM b LEFT JOIN LATERAL (SELECT (b.s + g)::date AS day FROM generate_series(1, b.l - b.s) g WHERE extract(isodow FROM b.s + g) BETWEEN 1 AND 5) d ON true GROUP BY b.user_id, b.s, b.l ORDER BY b.user_id
+ds-014:
+  wrong: |
+    SELECT b.id AS booking_id, to_char(n.night, 'YYYY-MM') AS month, count(*) AS nights FROM bookings b CROSS JOIN LATERAL generate_series(b.check_in::timestamp, b.check_out::timestamp, interval '1 day') AS n(night) WHERE b.room_id BETWEEN 33 AND 36 AND b.status = 'confirmed' AND b.check_out - b.check_in >= 30 GROUP BY b.id, 2 ORDER BY b.id, 2
+  right: |
+    SELECT b.id AS booking_id, to_char(m.ms, 'YYYY-MM') AS month, (least(b.check_out, (m.ms + interval '1 month')::date) - greatest(b.check_in, m.ms::date)) AS nights FROM bookings b CROSS JOIN LATERAL generate_series(date_trunc('month', b.check_in::timestamp), (b.check_out - 1)::timestamp, interval '1 month') AS m(ms) WHERE b.room_id BETWEEN 33 AND 36 AND b.status = 'confirmed' AND b.check_out - b.check_in >= 30 ORDER BY b.id, 2
+ds-015:
+  wrong: |
+    SELECT CASE WHEN phone IS NULL THEN 'missing' WHEN phone ~ '\d{3} \d{3} \d{4}' THEN 'spaces' WHEN phone ~ '^\+91' THEN 'india' WHEN phone ~ '^\+1 ' THEN 'us_plus1' WHEN phone ~ '^\(' THEN 'parens' WHEN phone ~ '^\d{3}\.' THEN 'dots' ELSE 'digits10' END AS format, count(*) AS users FROM users GROUP BY 1 ORDER BY users DESC, format
+  right: |
+    SELECT CASE WHEN phone IS NULL THEN 'missing' WHEN left(phone, 3) = '+91' THEN 'india' WHEN left(phone, 3) = '+1 ' THEN 'us_plus1' WHEN left(phone, 1) = '(' THEN 'parens' WHEN phone ~ '^\d{3}\.' THEN 'dots' WHEN phone ~ '^\d+$' THEN 'digits10' ELSE 'spaces' END AS format, count(*) AS users FROM users GROUP BY 1 ORDER BY users DESC, format
+ds-016:
+  wrong: |
+    WITH f AS (SELECT u.id, u.tz, u.signup_at, min(e.ts) AS first_ts FROM users u JOIN events e ON e.user_id = u.id AND e.name <> 'signup' GROUP BY u.id, u.tz, u.signup_at) SELECT tz, count(*) AS users_with_activity, count(*) FILTER (WHERE (first_ts AT TIME ZONE 'UTC')::date <> (signup_at AT TIME ZONE 'UTC')::date) AS crossed_midnight FROM f GROUP BY tz ORDER BY tz
+  right: |
+    SELECT u.tz, count(*) AS users_with_activity, sum((date_trunc('day', f.ft AT TIME ZONE u.tz) <> date_trunc('day', u.signup_at AT TIME ZONE u.tz))::int) AS crossed_midnight FROM users u JOIN LATERAL (SELECT min(ts) AS ft FROM events e WHERE e.user_id = u.id AND e.name <> 'signup') f ON f.ft IS NOT NULL GROUP BY u.tz ORDER BY u.tz

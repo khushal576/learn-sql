@@ -1,0 +1,26 @@
+id: ds-008
+title: Customer tenure in whole months
+topic: dates-strings
+tags: [age, interval, months]
+difficulty: medium
+dataset: events
+prompt: |
+  Customer success runs a "months with us" report as of **2024-04-10**. For **users 1 to 30**, compute the number of **whole calendar months** completed between the user's signup date (the UTC date of `signup_at`) and 2024-04-10. A user who signed up on 2024-01-12 has 2 whole months on 2024-04-10 (the third one is not complete until 12 April).
+
+  Return `user_id` and `months` (integer), ordered by `user_id`.
+solution_sql: |
+  SELECT id AS user_id,
+         (extract(year FROM a) * 12 + extract(month FROM a))::int AS months
+  FROM (SELECT id, age(date '2024-04-10', (signup_at AT TIME ZONE 'UTC')::date) AS a FROM users WHERE id <= 30) t
+  ORDER BY id
+compare: {order_matters: true}
+hints:
+  - "`age(end, start)` returns an interval like `2 mons 23 days`; pick its parts with `extract`."
+  - "Subtracting month NUMBERS (4 - 1) ignores the day of the month."
+trap: |
+  Two tempting shortcuts are wrong: subtracting month numbers (`extract(month FROM date '2024-04-10') - extract(month FROM signup)`) counts month boundaries crossed, not months completed — 19 of the 30 users get a number one too high (e.g. someone who signed up on 2024-03-15 has 0 months, not 1); and `floor(days / 30)` drifts because months have 28-31 days (2 users are off). `age()` counts real calendar months.
+followup: |
+  "What does `age()` do when the start day is 31 and the end month has 30 days?" (It borrows from the previous month, so the result can look surprising at month ends; document the rule you need.)
+alternatives:
+  - |
+    SELECT id AS user_id, ((extract(year FROM date '2024-04-10') - extract(year FROM s)) * 12 + extract(month FROM date '2024-04-10') - extract(month FROM s) - CASE WHEN extract(day FROM date '2024-04-10') < extract(day FROM s) THEN 1 ELSE 0 END)::int AS months FROM (SELECT id, (signup_at AT TIME ZONE 'UTC')::date AS s FROM users WHERE id <= 30) t ORDER BY id

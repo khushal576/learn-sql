@@ -1,0 +1,28 @@
+id: dm-009
+title: Customers that would block a UNIQUE (name, city)
+topic: data-modelling
+tags: [constraint-check, duplicates, window-count, "null"]
+difficulty: hard
+dataset: bank
+prompt: |
+  The bank wants to add `UNIQUE (name, city)` to `customers` to stop double registrations. The constraint cannot be created while two rows share the same name **and** the same city. (Remember how UNIQUE treats NULL: a customer without a city never conflicts with anybody.)
+
+  Return every customer that is part of such a conflict: `id`, `name`, `city`, ordered by `name`, `city`, `id`.
+solution_sql: |
+  SELECT id, name, city
+  FROM (SELECT id, name, city, count(*) OVER (PARTITION BY name, city) AS n FROM customers) x
+  WHERE n > 1 AND city IS NOT NULL
+  ORDER BY name, city, id
+compare: {order_matters: true}
+hints:
+  - "You need the rows, not just the duplicated keys - a window count or a join back to the groups gives them."
+  - "What would a GROUP BY or PARTITION BY do with several rows whose city is NULL?"
+trap: |
+  Checking only the name (or counting NULL cities as equal) overstates the blockers: only 36 distinct names exist among the 400 customers, so every customer shares a name with somebody (400 rows flagged), while only 280 customers share name AND city. Only identical (name, city) pairs with a real city conflict.
+followup: |
+  "What if NULLs must conflict too?" (PostgreSQL 15+ has `UNIQUE NULLS NOT DISTINCT (name, city)`; before that a unique index on `(name, COALESCE(city, ''))`.)
+alternatives:
+  - |
+    SELECT c.id, c.name, c.city FROM customers c
+    WHERE c.city IS NOT NULL AND EXISTS (SELECT 1 FROM customers o WHERE o.name = c.name AND o.city = c.city AND o.id <> c.id)
+    ORDER BY c.name, c.city, c.id

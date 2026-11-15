@@ -1,0 +1,518 @@
+mk-001:
+  wrong: |
+    SELECT c.country, count(DISTINCT o.id) AS orders, sum(i.quantity) AS units, sum(i.quantity * p.price) AS revenue
+    FROM orders o JOIN customers c ON c.id = o.customer_id JOIN order_items i ON i.order_id = o.id JOIN products p ON p.id = i.product_id
+    WHERE o.status = 'delivered' AND o.order_date >= '2023-01-01' AND o.order_date < '2024-01-01'
+    GROUP BY c.country ORDER BY revenue DESC, c.country
+  right: |
+    WITH d AS (SELECT id, customer_id FROM orders WHERE status='delivered' AND extract(year FROM order_date)=2023),
+    l AS (SELECT order_id, sum(quantity) u, sum(quantity*unit_price) r FROM order_items GROUP BY order_id)
+    SELECT c.country, count(*) AS orders, sum(l.u) AS units, sum(l.r) AS revenue
+    FROM d JOIN customers c ON c.id=d.customer_id JOIN l ON l.order_id=d.id GROUP BY c.country ORDER BY 4 DESC, 1
+mk-002:
+  wrong: |
+    SELECT pay.method, count(*) AS orders, sum(i.quantity) AS units, sum(pay.amount) AS paid_total
+    FROM payments pay JOIN orders o ON o.id = pay.order_id JOIN order_items i ON i.order_id = o.id
+    WHERE o.order_date >= '2024-01-01' AND o.order_date < '2024-07-01'
+    GROUP BY pay.method ORDER BY paid_total DESC, pay.method
+  right: |
+    SELECT p.method, count(DISTINCT p.order_id) AS orders,
+      (SELECT sum(quantity) FROM order_items i WHERE i.order_id = ANY(array_agg(p.order_id))) AS units, sum(p.amount) AS paid_total
+    FROM payments p JOIN orders o ON o.id=p.order_id WHERE o.order_date BETWEEN '2024-01-01' AND '2024-06-30'
+    GROUP BY p.method ORDER BY 4 DESC, 1
+mk-003:
+  wrong: |
+    WITH u AS (
+      SELECT c.country, i.product_id, sum(i.quantity) AS units
+      FROM orders o JOIN customers c ON c.id = o.customer_id JOIN order_items i ON i.order_id = o.id
+      WHERE o.status = 'delivered' AND o.order_date >= '2024-01-01' AND o.order_date < '2025-01-01'
+      GROUP BY c.country, i.product_id),
+    r AS (SELECT *, row_number() OVER (PARTITION BY country ORDER BY units DESC, product_id) AS rnk FROM u)
+    SELECT r.country, r.rnk AS rank, r.product_id, p.name, r.units
+    FROM r JOIN products p ON p.id = r.product_id WHERE r.rnk <= 3 ORDER BY r.country, r.rnk, r.product_id
+  right: |
+    SELECT country, rnk AS rank, product_id, name, units FROM (
+      SELECT c.country, i.product_id, p.name, sum(i.quantity) AS units,
+             dense_rank() OVER (PARTITION BY c.country ORDER BY sum(i.quantity) DESC) AS drk,
+             rank() OVER (PARTITION BY c.country ORDER BY sum(i.quantity) DESC) AS rnk
+      FROM order_items i JOIN orders o ON o.id=i.order_id JOIN customers c ON c.id=o.customer_id JOIN products p ON p.id=i.product_id
+      WHERE o.status='delivered' AND extract(year FROM o.order_date)=2024
+      GROUP BY c.country, i.product_id, p.name) t
+    WHERE rnk <= 3 ORDER BY country, rnk, product_id
+mk-004:
+  wrong: |
+    SELECT c.segment, count(*) AS customers, count(*) FILTER (WHERE o.id IS NULL) AS never_bought,
+           round(100.0 * count(*) FILTER (WHERE o.id IS NULL) / count(*), 1) AS never_bought_pct
+    FROM customers c LEFT JOIN orders o ON o.customer_id = c.id
+    GROUP BY c.segment ORDER BY c.segment
+  right: |
+    WITH buyers AS (SELECT DISTINCT customer_id FROM orders WHERE status IN ('shipped','delivered','returned'))
+    SELECT c.segment, count(*) AS customers, count(*) - count(b.customer_id) AS never_bought,
+           round(100.0 * (count(*) - count(b.customer_id)) / count(*), 1) AS never_bought_pct
+    FROM customers c LEFT JOIN buyers b ON b.customer_id = c.id GROUP BY c.segment ORDER BY 1
+mk-005:
+  wrong: |
+    SELECT cat.name AS category, parent.name AS parent_category,
+           coalesce(sum(i.quantity) FILTER (WHERE o.status = 'delivered'), 0) AS delivered_units,
+           coalesce(sum(i.quantity) FILTER (WHERE o.status = 'returned'), 0) AS returned_units,
+           round(100.0 * coalesce(sum(i.quantity) FILTER (WHERE o.status = 'returned'), 0) / sum(i.quantity), 2) AS return_pct
+    FROM order_items i JOIN orders o ON o.id = i.order_id JOIN products p ON p.id = i.product_id
+    JOIN categories cat ON cat.id = p.category_id LEFT JOIN categories parent ON parent.id = cat.parent_id
+    GROUP BY cat.id, cat.name, parent.name ORDER BY return_pct DESC, cat.name
+  right: |
+    WITH u AS (SELECT p.category_id, o.status, sum(i.quantity) q
+               FROM order_items i JOIN orders o ON o.id=i.order_id JOIN products p ON p.id=i.product_id
+               WHERE o.status IN ('delivered','returned') GROUP BY 1,2)
+    SELECT c.name AS category, pc.name AS parent_category,
+           coalesce(sum(u.q) FILTER (WHERE u.status='delivered'),0) AS delivered_units,
+           coalesce(sum(u.q) FILTER (WHERE u.status='returned'),0) AS returned_units,
+           round(100.0*coalesce(sum(u.q) FILTER (WHERE u.status='returned'),0)/sum(u.q),2) AS return_pct
+    FROM u JOIN categories c ON c.id=u.category_id LEFT JOIN categories pc ON pc.id=c.parent_id
+    GROUP BY c.id, c.name, pc.name ORDER BY 5 DESC, 1
+mk-006:
+  wrong: |
+    WITH g AS (
+      SELECT customer_id, status,
+             order_date - lag(order_date) OVER (PARTITION BY customer_id ORDER BY order_date, id) AS gap_days
+      FROM orders)
+    SELECT customer_id,
+           count(*) AS delivered_orders,
+           round(avg(gap_days), 1) AS avg_gap_days,
+           max(gap_days) AS longest_gap_days
+    FROM g
+    WHERE status = 'delivered'
+    GROUP BY customer_id
+    HAVING count(*) >= 20
+    ORDER BY avg_gap_days, customer_id
+  right: |
+    SELECT o.customer_id, count(*) AS delivered_orders, round(avg(o.order_date - p.order_date), 1) AS avg_gap_days,
+           max(o.order_date - p.order_date) AS longest_gap_days
+    FROM orders o
+    LEFT JOIN LATERAL (SELECT x.order_date FROM orders x WHERE x.customer_id = o.customer_id AND x.status = 'delivered'
+                       AND (x.order_date, x.id) < (o.order_date, o.id) ORDER BY x.order_date DESC, x.id DESC LIMIT 1) p ON true
+    WHERE o.status = 'delivered'
+    GROUP BY o.customer_id HAVING count(*) >= 20
+    ORDER BY 3, 1
+mk-007:
+  wrong: |
+    SELECT p.id AS product_id, p.name, count(*) AS reviews, count(*) AS written_reviews, round(avg(r.rating), 2) AS avg_rating
+    FROM reviews r JOIN products p ON p.id = r.product_id
+    GROUP BY p.id, p.name HAVING count(*) >= 20
+    ORDER BY avg_rating DESC, reviews DESC, p.id LIMIT 10
+  right: |
+    WITH s AS (SELECT product_id, count(*) n, count(*) FILTER (WHERE body IS NOT NULL) w, avg(rating) a FROM reviews GROUP BY 1 HAVING count(*) >= 20)
+    SELECT s.product_id, p.name, s.n AS reviews, s.w AS written_reviews, round(s.a, 2) AS avg_rating
+    FROM s JOIN products p ON p.id = s.product_id ORDER BY 5 DESC, 3 DESC, 1 FETCH FIRST 10 ROWS ONLY
+mk-008:
+  wrong: |
+    SELECT r.product_id, p.name, count(*) AS reviews,
+           count(*) FILTER (WHERE NOT EXISTS (SELECT 1 FROM orders o JOIN order_items i ON i.order_id = o.id
+             WHERE o.customer_id = r.customer_id AND i.product_id = r.product_id)) AS unverified_reviews
+    FROM reviews r JOIN products p ON p.id = r.product_id
+    GROUP BY r.product_id, p.name ORDER BY unverified_reviews DESC, r.product_id
+  right: |
+    SELECT r.product_id, p.name, count(*) AS reviews, count(*) - count(b.product_id) AS unverified_reviews
+    FROM reviews r JOIN products p ON p.id = r.product_id
+    LEFT JOIN (SELECT DISTINCT o.customer_id, i.product_id FROM orders o JOIN order_items i ON i.order_id = o.id
+               WHERE o.status = 'delivered') b ON b.customer_id = r.customer_id AND b.product_id = r.product_id
+    GROUP BY r.product_id, p.name ORDER BY 4 DESC, 1
+mk-009:
+  wrong: |
+    WITH sales AS (
+      SELECT c.id AS root_id, p.id AS product_id, p.name AS product_name, sum(i.quantity * i.unit_price) AS revenue
+      FROM orders o JOIN order_items i ON i.order_id = o.id JOIN products p ON p.id = i.product_id
+      JOIN categories c ON c.id = p.category_id
+      WHERE o.status = 'delivered' AND o.order_date >= '2023-01-01' AND o.order_date < '2024-01-01' AND c.parent_id IS NULL
+      GROUP BY c.id, p.id, p.name),
+    agg AS (SELECT *, sum(revenue) OVER (PARTITION BY root_id) AS root_revenue,
+            row_number() OVER (PARTITION BY root_id ORDER BY revenue DESC, product_id) AS rn FROM sales)
+    SELECT c.name AS department, a.root_revenue AS revenue,
+           round(100.0 * a.root_revenue / sum(a.root_revenue) OVER (), 2) AS share_pct, a.product_name AS best_product
+    FROM agg a JOIN categories c ON c.id = a.root_id WHERE a.rn = 1 ORDER BY revenue DESC
+  right: |
+    SELECT d.name AS department, sum(x.rev) AS revenue, round(100.0*sum(x.rev)/sum(sum(x.rev)) OVER (), 2) AS share_pct,
+           (SELECT p2.name FROM order_items i2 JOIN orders o2 ON o2.id=i2.order_id JOIN products p2 ON p2.id=i2.product_id
+            WHERE o2.status='delivered' AND o2.order_date BETWEEN '2023-01-01' AND '2023-12-31'
+              AND p2.category_id IN (SELECT c3.id FROM categories c3 WHERE c3.id=d.id OR c3.parent_id=d.id OR c3.parent_id IN (SELECT id FROM categories WHERE parent_id=d.id))
+            GROUP BY p2.id, p2.name ORDER BY sum(i2.quantity*i2.unit_price) DESC, p2.id LIMIT 1) AS best_product
+    FROM categories d
+    JOIN LATERAL (
+      SELECT sum(i.quantity*i.unit_price) rev FROM order_items i JOIN orders o ON o.id=i.order_id JOIN products p ON p.id=i.product_id
+      JOIN categories c ON c.id=p.category_id
+      WHERE o.status='delivered' AND o.order_date BETWEEN '2023-01-01' AND '2023-12-31'
+        AND (c.id=d.id OR c.parent_id=d.id OR c.parent_id IN (SELECT id FROM categories WHERE parent_id=d.id))) x ON true
+    WHERE d.parent_id IS NULL GROUP BY d.id, d.name ORDER BY 2 DESC
+mk-010:
+  wrong: |
+    SELECT d.name AS department, d.location, count(e.id) AS headcount, round(avg(e.salary), 2) AS avg_salary
+    FROM departments d JOIN employees e ON e.dept_id = d.id
+    GROUP BY d.id, d.name, d.location ORDER BY d.name
+  right: |
+    SELECT d.name AS department, d.location,
+           (SELECT count(*) FROM employees e WHERE e.dept_id = d.id) AS headcount,
+           (SELECT round(avg(salary), 2) FROM employees e WHERE e.dept_id = d.id) AS avg_salary
+    FROM departments d ORDER BY 1
+mk-011:
+  wrong: |
+    WITH x AS (
+      SELECT e.id, e.name, e.dept_id, e.salary, avg(e.salary) OVER (PARTITION BY e.dept_id) AS dept_avg FROM employees e)
+    SELECT x.id, x.name, d.name AS department, x.salary, round(x.dept_avg, 2) AS dept_avg
+    FROM x JOIN departments d ON d.id = x.dept_id
+    WHERE x.salary > x.dept_avg AND x.id NOT IN (SELECT manager_id FROM employees)
+    ORDER BY x.salary DESC, x.id LIMIT 15
+  right: |
+    SELECT e.id, e.name, d.name AS department, e.salary, round(a.av, 2) AS dept_avg
+    FROM employees e JOIN departments d ON d.id = e.dept_id
+    JOIN (SELECT dept_id, avg(salary) av FROM employees GROUP BY dept_id) a ON a.dept_id = e.dept_id
+    LEFT JOIN (SELECT DISTINCT manager_id FROM employees WHERE manager_id IS NOT NULL) m ON m.manager_id = e.id
+    WHERE m.manager_id IS NULL AND e.salary > a.av
+    ORDER BY e.salary DESC, e.id LIMIT 15
+mk-012:
+  wrong: |
+    SELECT b.id AS manager_id, b.name AS manager, b.job_title, count(e.id) AS org_size, sum(e.salary) AS org_payroll, 1 AS levels
+    FROM employees b JOIN employees e ON e.manager_id = b.id
+    GROUP BY b.id, b.name, b.job_title ORDER BY org_size DESC, b.id LIMIT 10
+  right: |
+    WITH RECURSIVE r(boss, emp, lvl) AS (
+      SELECT manager_id, id, 1 FROM employees WHERE manager_id IS NOT NULL
+      UNION ALL SELECT r.boss, e.id, r.lvl + 1 FROM r JOIN employees e ON e.manager_id = r.emp)
+    SELECT r.boss AS manager_id, b.name AS manager, b.job_title, count(*) AS org_size, sum(e.salary) AS org_payroll, max(r.lvl) AS levels
+    FROM r JOIN employees b ON b.id = r.boss JOIN employees e ON e.id = r.emp
+    GROUP BY r.boss, b.name, b.job_title ORDER BY 4 DESC, 1 LIMIT 10
+mk-013:
+  wrong: |
+    SELECT p.name AS project, d.name AS department, p.start_date, p.end_date, count(a.emp_id) AS team_size, coalesce(sum(a.hours), 0) AS total_hours
+    FROM projects p JOIN departments d ON d.id = p.dept_id LEFT JOIN project_assignments a ON a.project_id = p.id
+    WHERE p.start_date <= DATE '2023-06-30' AND p.end_date >= DATE '2023-06-30'
+    GROUP BY p.id, p.name, d.name, p.start_date, p.end_date ORDER BY p.start_date, p.id
+  right: |
+    SELECT p.name AS project, d.name AS department, p.start_date, p.end_date,
+           (SELECT count(*) FROM project_assignments a WHERE a.project_id = p.id) AS team_size,
+           (SELECT coalesce(sum(hours), 0) FROM project_assignments a WHERE a.project_id = p.id) AS total_hours
+    FROM projects p JOIN departments d ON d.id = p.dept_id
+    WHERE DATE '2023-06-30' BETWEEN p.start_date AND coalesce(p.end_date, DATE '9999-12-31')
+    ORDER BY 3, p.id
+mk-014:
+  wrong: |
+    SELECT d.name AS department, count(*) AS employees, sum(e.salary) AS payroll
+    FROM employees e JOIN departments d ON d.id = e.dept_id
+    WHERE e.hire_date <= DATE '2022-12-31'
+    GROUP BY d.id, d.name ORDER BY payroll DESC, d.name
+  right: |
+    SELECT d.name AS department, count(*) AS employees, sum(s.salary) AS payroll
+    FROM employees e JOIN departments d ON d.id = e.dept_id
+    JOIN LATERAL (SELECT salary FROM salary_history h WHERE h.emp_id = e.id AND h.effective_date <= DATE '2022-12-31'
+                  ORDER BY h.effective_date DESC LIMIT 1) s ON true
+    GROUP BY d.id, d.name ORDER BY 3 DESC, 1
+mk-015:
+  wrong: |
+    WITH w AS (
+      SELECT p.id AS project_id, p.name AS project, od.name AS owner_dept, count(*) AS team_size,
+             count(*) FILTER (WHERE e.dept_id <> p.dept_id) AS outside_staff,
+             sum(a.hours) AS hours, sum(a.hours) FILTER (WHERE e.dept_id <> p.dept_id) AS outside_hours
+      FROM projects p JOIN departments od ON od.id = p.dept_id JOIN project_assignments a ON a.project_id = p.id
+      JOIN employees e ON e.id = a.emp_id WHERE e.hire_date <= p.start_date GROUP BY p.id, p.name, od.name),
+    x AS (SELECT *, round(100 * coalesce(outside_hours, 0) / hours, 2) AS outside_hours_pct FROM w)
+    SELECT project, owner_dept, team_size, outside_staff, outside_hours_pct,
+           rank() OVER (ORDER BY outside_hours_pct DESC) AS pct_rank
+    FROM x ORDER BY pct_rank, project_id
+  right: |
+    SELECT t.project, t.owner_dept, t.team_size, t.outside_staff, t.pct AS outside_hours_pct,
+           rank() OVER (ORDER BY t.pct DESC) AS pct_rank
+    FROM (SELECT p.id, p.name AS project, od.name AS owner_dept, count(*) AS team_size,
+                 sum(CASE WHEN e.dept_id <> p.dept_id THEN 1 ELSE 0 END) AS outside_staff,
+                 round(100.0 * sum(CASE WHEN e.dept_id <> p.dept_id THEN a.hours ELSE 0 END) / sum(a.hours), 2) AS pct
+          FROM project_assignments a JOIN projects p ON p.id = a.project_id JOIN departments od ON od.id = p.dept_id
+          JOIN employees e ON e.id = a.emp_id
+          WHERE a.emp_id IN (SELECT id FROM employees WHERE hire_date <= p.start_date)
+          GROUP BY p.id, p.name, od.name) t
+    ORDER BY pct_rank, t.id
+mk-016:
+  wrong: |
+    SELECT c.segment, count(DISTINCT c.id) AS customers, count(a.id) FILTER (WHERE a.status = 'open') AS open_accounts,
+           sum(t.amount) FILTER (WHERE a.status = 'open') AS net_balance
+    FROM customers c JOIN accounts a ON a.customer_id = c.id LEFT JOIN transactions t ON t.account_id = a.id
+    GROUP BY c.segment ORDER BY c.segment
+  right: |
+    SELECT c.segment, count(*) AS customers,
+           sum((SELECT count(*) FROM accounts a WHERE a.customer_id = c.id AND a.status = 'open')) AS open_accounts,
+           sum((SELECT sum(t.amount) FROM accounts a JOIN transactions t ON t.account_id = a.id WHERE a.customer_id = c.id AND a.status = 'open')) AS net_balance
+    FROM customers c GROUP BY c.segment ORDER BY 1
+mk-017:
+  wrong: |
+    WITH run AS (
+      SELECT t.account_id, t.tx_date, sum(t.amount) OVER (PARTITION BY t.account_id ORDER BY t.tx_date, t.id) AS balance
+      FROM transactions t)
+    SELECT r.account_id, count(DISTINCT r.tx_date) AS days_over_limit, min(r.balance) AS worst_balance
+    FROM run r JOIN accounts a ON a.id = r.account_id
+    WHERE a.type = 'checking' AND r.balance < -a.overdraft_limit
+    GROUP BY r.account_id ORDER BY days_over_limit DESC, r.account_id LIMIT 10
+  right: |
+    SELECT x.account_id, count(*) AS days_over_limit, min(x.bal) AS worst_balance
+    FROM (SELECT t.account_id, t.tx_date, sum(sum(t.amount)) OVER (PARTITION BY t.account_id ORDER BY t.tx_date ROWS UNBOUNDED PRECEDING) AS bal
+          FROM transactions t GROUP BY t.account_id, t.tx_date) x
+    JOIN accounts a ON a.id = x.account_id AND a.type = 'checking'
+    WHERE x.bal + a.overdraft_limit < 0
+    GROUP BY x.account_id ORDER BY 2 DESC, 1 FETCH FIRST 10 ROWS ONLY
+mk-018:
+  wrong: |
+    WITH daily AS (SELECT account_id, tx_date, -sum(amount) AS spend FROM transactions WHERE kind = 'purchase' GROUP BY account_id, tx_date),
+    roll AS (SELECT account_id, tx_date,
+             sum(spend) OVER (PARTITION BY account_id ORDER BY tx_date ROWS BETWEEN 29 PRECEDING AND CURRENT ROW) AS spend_30d FROM daily),
+    best AS (SELECT *, row_number() OVER (PARTITION BY account_id ORDER BY spend_30d DESC, tx_date) AS rn FROM roll)
+    SELECT account_id, tx_date AS window_end, spend_30d AS peak_spend_30d FROM best WHERE rn = 1
+    ORDER BY peak_spend_30d DESC, account_id LIMIT 10
+  right: |
+    SELECT d.account_id, d.tx_date AS window_end, d.s AS peak_spend_30d FROM (
+      SELECT a.account_id, a.tx_date, (SELECT -sum(t.amount) FROM transactions t WHERE t.account_id = a.account_id AND t.kind = 'purchase'
+             AND t.tx_date BETWEEN a.tx_date - 29 AND a.tx_date) AS s,
+             row_number() OVER (PARTITION BY a.account_id ORDER BY (SELECT -sum(t.amount) FROM transactions t WHERE t.account_id = a.account_id AND t.kind = 'purchase'
+             AND t.tx_date BETWEEN a.tx_date - 29 AND a.tx_date) DESC, a.tx_date) AS rn
+      FROM (SELECT DISTINCT account_id, tx_date FROM transactions WHERE kind = 'purchase') a) d
+    WHERE d.rn = 1 ORDER BY d.s DESC, d.account_id LIMIT 10
+mk-019:
+  wrong: |
+    SELECT status, count(*) AS loans, sum(principal) AS total_principal, round(avg(annual_rate), 2) AS weighted_rate
+    FROM loans GROUP BY status ORDER BY total_principal DESC, status
+  right: |
+    SELECT l.status, count(*) AS loans, sum(l.principal) AS total_principal,
+           round(sum(l.principal * l.annual_rate / t.p) , 2) AS weighted_rate
+    FROM loans l JOIN (SELECT status, sum(principal) p FROM loans GROUP BY status) t ON t.status = l.status
+    GROUP BY l.status ORDER BY 3 DESC, 1
+mk-020:
+  wrong: |
+    SELECT c.id AS customer_id, c.name, sum(l.principal) AS loan_principal, count(a.id) AS accounts, sum(t.amount) AS net_balance
+    FROM loans l JOIN customers c ON c.id = l.customer_id JOIN accounts a ON a.customer_id = c.id LEFT JOIN transactions t ON t.account_id = a.id
+    WHERE l.status = 'defaulted' GROUP BY c.id, c.name ORDER BY net_balance DESC, c.id
+  right: |
+    SELECT l.customer_id, c.name, l.principal AS loan_principal,
+           (SELECT count(*) FROM accounts a WHERE a.customer_id = l.customer_id) AS accounts,
+           (SELECT coalesce(sum(t.amount), 0) FROM transactions t WHERE t.account_id IN (SELECT id FROM accounts WHERE customer_id = l.customer_id)) AS net_balance
+    FROM loans l JOIN customers c ON c.id = l.customer_id WHERE l.status = 'defaulted' ORDER BY 5 DESC, 1
+mk-021:
+  wrong: |
+    WITH RECURSIVE l AS (
+      SELECT id, principal, annual_rate / 1200.0 AS r, term_months AS n,
+             principal * (annual_rate / 1200.0) / (1 - power(1 + annual_rate / 1200.0, -term_months)) AS pmt
+      FROM loans WHERE id IN (2, 5)),
+    s AS (
+      SELECT id AS loan_id, 1 AS month_no, pmt AS payment, principal * r AS interest, principal::numeric AS opening, principal::numeric AS principal, r, n
+      FROM l
+      UNION ALL
+      SELECT s.loan_id, s.month_no + 1, s.payment, s.principal * s.r, s.opening - (s.payment - s.principal * s.r), s.principal, s.r, s.n
+      FROM s WHERE s.month_no < s.n)
+    SELECT loan_id, month_no, round(payment, 2) AS payment, round(interest, 2) AS interest,
+           round(payment - interest, 2) AS principal_paid, round(opening - (payment - interest), 2) AS balance_after
+    FROM s ORDER BY loan_id, month_no
+  right: |
+    SELECT l.id AS loan_id, k AS month_no, round(m.pmt, 2) AS payment,
+           round(bal_prev * m.r, 2) AS interest,
+           round(m.pmt - bal_prev * m.r, 2) AS principal_paid,
+           round(bal_prev - (m.pmt - bal_prev * m.r), 2) AS balance_after
+    FROM loans l
+    CROSS JOIN LATERAL (SELECT l.annual_rate / 1200.0 AS r, l.principal * (l.annual_rate / 1200.0) / (1 - power(1 + l.annual_rate / 1200.0, -l.term_months)) AS pmt) m
+    CROSS JOIN LATERAL generate_series(1, l.term_months) k
+    CROSS JOIN LATERAL (SELECT l.principal * power(1 + m.r, k - 1) - m.pmt * (power(1 + m.r, k - 1) - 1) / m.r AS bal_prev) b
+    WHERE l.id IN (2, 5) ORDER BY 1, 2
+mk-022:
+  wrong: |
+    SELECT g.letter, count(*) AS final_exams, round(100.0 * count(*) / sum(count(*)) OVER (), 2) AS share_pct
+    FROM scores s JOIN grade_bands g ON s.score BETWEEN g.min_score AND g.max_score
+    WHERE s.exam = 'final' GROUP BY g.letter ORDER BY g.letter
+  right: |
+    SELECT g.letter, count(s.id) AS final_exams, round(100.0 * count(s.id) / (SELECT count(*) FROM scores WHERE exam = 'final'), 2) AS share_pct
+    FROM grade_bands g JOIN scores s ON s.exam = 'final' AND s.score >= g.min_score AND s.score <= g.max_score - 1
+    GROUP BY g.letter ORDER BY 1
+mk-023:
+  wrong: |
+    SELECT t.name AS teacher, t.subject, count(DISTINCT c.id) AS courses, count(DISTINCT e.student_id) AS students, round(avg(sc.score), 2) AS avg_final
+    FROM teachers t LEFT JOIN courses c ON c.teacher_id = t.id
+    LEFT JOIN enrollments e ON e.course_id = c.id
+    LEFT JOIN scores sc ON sc.student_id = e.student_id AND sc.course_id = e.course_id AND sc.exam = 'final'
+    WHERE e.status <> 'dropped'
+    GROUP BY t.id, t.name, t.subject ORDER BY students DESC, t.name
+  right: |
+    SELECT t.name AS teacher, t.subject,
+           (SELECT count(*) FROM courses c WHERE c.teacher_id = t.id) AS courses,
+           (SELECT count(DISTINCT e.student_id) FROM enrollments e JOIN courses c ON c.id = e.course_id WHERE c.teacher_id = t.id AND e.status <> 'dropped') AS students,
+           (SELECT round(avg(sc.score), 2) FROM scores sc JOIN courses c ON c.id = sc.course_id WHERE c.teacher_id = t.id AND sc.exam = 'final') AS avg_final
+    FROM teachers t ORDER BY 4 DESC, 1
+mk-024:
+  wrong: |
+    WITH arts AS (SELECT c.id FROM courses c JOIN teachers t ON t.id = c.teacher_id WHERE t.subject = 'Arts')
+    SELECT s.id AS student_id, s.name, s.grade, round(avg(m.score), 2) AS avg_midterm
+    FROM enrollments e JOIN arts a ON a.id = e.course_id JOIN students s ON s.id = e.student_id
+    LEFT JOIN scores m ON m.student_id = e.student_id AND m.course_id = e.course_id AND m.exam = 'midterm'
+    GROUP BY s.id, s.name, s.grade HAVING count(*) = (SELECT count(*) FROM arts)
+    ORDER BY avg_midterm DESC NULLS LAST, s.id
+  right: |
+    SELECT s.id AS student_id, s.name, s.grade,
+           (SELECT round(avg(m.score), 2) FROM scores m WHERE m.student_id = s.id AND m.exam = 'midterm'
+              AND m.course_id IN (SELECT c.id FROM courses c JOIN teachers t ON t.id = c.teacher_id WHERE t.subject = 'Arts')) AS avg_midterm
+    FROM students s
+    WHERE NOT EXISTS (SELECT 1 FROM courses c JOIN teachers t ON t.id = c.teacher_id
+                      WHERE t.subject = 'Arts'
+                        AND NOT EXISTS (SELECT 1 FROM enrollments e WHERE e.student_id = s.id AND e.course_id = c.id AND e.status <> 'dropped'))
+    ORDER BY 4 DESC, 1
+mk-025:
+  wrong: |
+    SELECT s.grade, count(DISTINCT s.id) AS students,
+           0 AS without_enrolment,
+           round(1.0 * count(*) FILTER (WHERE e.status = 'active') / count(DISTINCT s.id), 2) AS active_courses_per_student
+    FROM students s JOIN enrollments e ON e.student_id = s.id
+    GROUP BY s.grade ORDER BY s.grade
+  right: |
+    SELECT s.grade, count(*) AS students, count(*) - count(x.student_id) AS without_enrolment,
+           round(coalesce(sum(x.act), 0) / count(*)::numeric, 2) AS active_courses_per_student
+    FROM students s LEFT JOIN (SELECT student_id, count(*) AS n, count(*) FILTER (WHERE status = 'active') AS act FROM enrollments GROUP BY student_id) x ON x.student_id = s.id
+    GROUP BY s.grade ORDER BY 1
+mk-026:
+  wrong: |
+    SELECT c.title AS course, count(DISTINCT e.student_id) FILTER (WHERE e.status = 'completed') AS completed_students,
+           round(avg(f.score) - avg(m.score), 2) AS avg_improvement,
+           count(*) FILTER (WHERE f.score > m.score) AS improved
+    FROM courses c JOIN enrollments e ON e.course_id = c.id
+    JOIN scores m ON m.student_id = e.student_id AND m.course_id = e.course_id AND m.exam = 'midterm'
+    LEFT JOIN scores f ON f.student_id = e.student_id AND f.course_id = e.course_id AND f.exam = 'final'
+    GROUP BY c.id, c.title HAVING count(DISTINCT e.student_id) FILTER (WHERE e.status = 'completed') >= 10
+    ORDER BY avg_improvement DESC, c.title
+  right: |
+    SELECT c.title AS course, count(*) AS completed_students, round(avg(d.diff), 2) AS avg_improvement, count(*) FILTER (WHERE d.diff > 0) AS improved
+    FROM (SELECT student_id, course_id,
+                 max(score) FILTER (WHERE exam = 'final') - max(score) FILTER (WHERE exam = 'midterm') AS diff
+          FROM scores GROUP BY student_id, course_id HAVING count(*) = 2) d
+    JOIN courses c ON c.id = d.course_id
+    GROUP BY c.id, c.title HAVING count(*) >= 10 ORDER BY 3 DESC, 1
+mk-027:
+  wrong: |
+    WITH d AS (
+      SELECT m.course_id, m.student_id, m.score AS midterm, f.score AS final, f.score - m.score AS improvement
+      FROM scores m JOIN scores f ON f.student_id = m.student_id AND f.course_id = m.course_id AND f.exam = 'final'
+      WHERE m.exam = 'midterm'),
+    r AS (SELECT *, row_number() OVER (PARTITION BY course_id ORDER BY improvement DESC, student_id) AS pos FROM d)
+    SELECT c.title AS course, r.pos AS place, s.name AS student, r.midterm, r.final, r.improvement
+    FROM r JOIN courses c ON c.id = r.course_id JOIN students s ON s.id = r.student_id
+    WHERE r.pos <= 3 ORDER BY c.title, r.pos, s.id
+  right: |
+    SELECT c.title AS course, t.pos AS place, s.name AS student, t.midterm, t.final, t.improvement
+    FROM (SELECT m.course_id, m.student_id, m.score AS midterm, f.score AS final, f.score - m.score AS improvement,
+                 dense_rank() OVER (PARTITION BY m.course_id ORDER BY f.score - m.score DESC) AS pos
+          FROM scores f JOIN scores m ON m.student_id = f.student_id AND m.course_id = f.course_id AND m.exam = 'midterm'
+          WHERE f.exam = 'final') t
+    JOIN courses c ON c.id = t.course_id JOIN students s ON s.id = t.student_id
+    WHERE t.pos <= 3 ORDER BY 1, 2, s.id
+mk-028:
+  wrong: |
+    SELECT u.plan, count(DISTINCT u.id) AS users, count(e.id) AS activated_users,
+           round(100.0 * count(e.id) / count(DISTINCT u.id), 2) AS activation_pct
+    FROM users u LEFT JOIN events e ON e.user_id = u.id AND e.name = 'activated'
+    GROUP BY u.plan ORDER BY u.plan
+  right: |
+    WITH a AS (SELECT DISTINCT user_id FROM events WHERE name = 'activated')
+    SELECT u.plan, count(*) AS users, count(a.user_id) AS activated_users, round(100.0 * count(a.user_id) / count(*), 2) AS activation_pct
+    FROM users u LEFT JOIN a ON a.user_id = u.id GROUP BY u.plan ORDER BY 1
+mk-029:
+  wrong: |
+    SELECT u.plan, count(*) AS activated_users,
+           round(avg(extract(epoch FROM e.ts - u.signup_at) / 3600.0)::numeric, 2) AS avg_hours,
+           round((percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM e.ts - u.signup_at) / 3600.0))::numeric, 2) AS median_hours
+    FROM events e JOIN users u ON u.id = e.user_id
+    WHERE e.name = 'activated' GROUP BY u.plan ORDER BY u.plan
+  right: |
+    SELECT u.plan, count(*) AS activated_users,
+           round(avg(d.h)::numeric, 2) AS avg_hours,
+           round((percentile_cont(0.5) WITHIN GROUP (ORDER BY d.h))::numeric, 2) AS median_hours
+    FROM users u
+    JOIN LATERAL (SELECT extract(epoch FROM e.ts - u.signup_at) / 3600.0 AS h FROM events e WHERE e.user_id = u.id AND e.name = 'activated' ORDER BY e.ts, e.id LIMIT 1) d ON true
+    GROUP BY u.plan ORDER BY 1
+mk-030:
+  wrong: |
+    SELECT date_trunc('week', u.signup_at AT TIME ZONE 'UTC')::date AS cohort_week,
+           count(DISTINCT u.id) AS signups,
+           count(e.id) FILTER (WHERE e.ts <= u.signup_at + interval '24 hours') AS bought_24h,
+           count(e.id) FILTER (WHERE e.ts <= u.signup_at + interval '48 hours') AS bought_48h,
+           round(100.0 * count(e.id) FILTER (WHERE e.ts <= u.signup_at + interval '48 hours') / count(DISTINCT u.id), 2) AS pct_48h
+    FROM users u LEFT JOIN events e ON e.user_id = u.id AND e.name = 'purchase'
+    GROUP BY 1 ORDER BY 1
+  right: |
+    SELECT date_trunc('week', u.signup_at AT TIME ZONE 'UTC')::date AS cohort_week, count(*) AS signups,
+           count(*) FILTER (WHERE EXISTS (SELECT 1 FROM events e WHERE e.user_id = u.id AND e.name = 'purchase' AND e.ts <= u.signup_at + interval '24 hours')) AS bought_24h,
+           count(*) FILTER (WHERE EXISTS (SELECT 1 FROM events e WHERE e.user_id = u.id AND e.name = 'purchase' AND e.ts <= u.signup_at + interval '48 hours')) AS bought_48h,
+           round(100.0 * count(*) FILTER (WHERE EXISTS (SELECT 1 FROM events e WHERE e.user_id = u.id AND e.name = 'purchase' AND e.ts <= u.signup_at + interval '48 hours')) / count(*), 2) AS pct_48h
+    FROM users u GROUP BY 1 ORDER BY 1
+mk-031:
+  wrong: |
+    SELECT device, count(device) AS events, count(DISTINCT user_id) AS users,
+           round(100.0 * count(device) / sum(count(device)) OVER (), 2) AS events_pct
+    FROM events WHERE device IS NOT NULL
+    GROUP BY device ORDER BY events DESC, device
+  right: |
+    SELECT d.device, count(*) AS events, count(DISTINCT d.user_id) AS users,
+           round(100.0 * count(*) / (SELECT count(*) FROM events), 2) AS events_pct
+    FROM (SELECT user_id, coalesce(device, 'unknown') AS device FROM events) d
+    GROUP BY d.device ORDER BY 2 DESC, 1
+mk-032:
+  wrong: |
+    SELECT u.id AS user_id, e.name AS last_event, e.ts AT TIME ZONE 'UTC' AS last_event_at_utc
+    FROM users u JOIN events e ON e.user_id = u.id
+    WHERE u.plan = 'pro' AND e.ts = (SELECT max(ts) FROM events x WHERE x.user_id = u.id)
+    ORDER BY u.id, e.name
+  right: |
+    SELECT user_id, name AS last_event, ts AT TIME ZONE 'UTC' AS last_event_at_utc
+    FROM (SELECT e.user_id, e.name, e.ts, row_number() OVER (PARTITION BY e.user_id ORDER BY e.ts DESC, e.id DESC) AS rn
+          FROM events e JOIN users u ON u.id = e.user_id WHERE u.plan = 'pro') t
+    WHERE rn = 1 ORDER BY user_id
+mk-033:
+  wrong: |
+    WITH g AS (
+      SELECT e.user_id, e.ts, ts - lag(ts) OVER (PARTITION BY e.user_id ORDER BY e.ts, e.id) AS gap FROM events e),
+    per_user AS (
+      SELECT user_id, count(*) FILTER (WHERE gap IS NULL OR gap >= interval '30 minutes') AS sessions, count(*) AS n_events FROM g GROUP BY user_id)
+    SELECT u.plan, count(*) AS active_users, sum(p.sessions) AS sessions, round(avg(p.sessions), 2) AS sessions_per_user,
+           round(sum(p.n_events)::numeric / sum(p.sessions), 2) AS events_per_session
+    FROM per_user p JOIN users u ON u.id = p.user_id GROUP BY u.plan ORDER BY u.plan
+  right: |
+    WITH g AS (SELECT user_id, id, ts, lag(ts) OVER (PARTITION BY user_id ORDER BY ts, id) AS prev FROM events),
+    per_user AS (
+      SELECT user_id, sum(CASE WHEN prev IS NULL OR ts - prev > interval '1800 seconds' THEN 1 ELSE 0 END) AS sessions, count(*) AS n_events
+      FROM g GROUP BY user_id)
+    SELECT u.plan, count(*) AS active_users, sum(p.sessions) AS sessions, round(avg(p.sessions), 2) AS sessions_per_user,
+           round(sum(p.n_events)::numeric / sum(p.sessions), 2) AS events_per_session
+    FROM per_user p JOIN users u ON u.id = p.user_id GROUP BY u.plan ORDER BY 1
+mk-034:
+  wrong: |
+    SELECT plan, count(*) AS subscriptions, count(*) FILTER (WHERE ended_on IS NULL) AS still_active,
+           round(avg(ended_on - started_on), 2) AS avg_days_finished
+    FROM subscriptions GROUP BY plan ORDER BY plan
+  right: |
+    SELECT plan, count(*) AS subscriptions, count(*) - count(ended_on) AS still_active,
+           round(sum(ended_on - started_on + 1)::numeric / count(ended_on), 2) AS avg_days_finished
+    FROM subscriptions GROUP BY plan ORDER BY 1
+mk-035:
+  wrong: |
+    WITH feb AS (
+      SELECT DISTINCT user_id, plan FROM subscriptions
+      WHERE started_on <= DATE '2024-02-15' AND (ended_on IS NULL OR ended_on >= DATE '2024-02-15')),
+    apr AS (
+      SELECT DISTINCT user_id, plan FROM subscriptions
+      WHERE started_on <= DATE '2024-04-15' AND (ended_on IS NULL OR ended_on >= DATE '2024-04-15'))
+    SELECT f.plan AS plan_feb_15, coalesce(a.plan, 'none') AS plan_apr_15, count(*) AS users
+    FROM feb f LEFT JOIN apr a ON a.user_id = f.user_id
+    GROUP BY f.plan, coalesce(a.plan, 'none') ORDER BY 1, 2
+  right: |
+    SELECT coalesce(f.plan, 'none') AS plan_feb_15, coalesce(a.plan, 'none') AS plan_apr_15, count(*) AS users
+    FROM (SELECT user_id, plan FROM subscriptions WHERE DATE '2024-02-15' BETWEEN started_on AND coalesce(ended_on, DATE '9999-12-31')) f
+    FULL OUTER JOIN (SELECT user_id, plan FROM subscriptions WHERE DATE '2024-04-15' BETWEEN started_on AND coalesce(ended_on, DATE '9999-12-31')) a USING (user_id)
+    GROUP BY 1, 2 ORDER BY 1, 2
+mk-036:
+  wrong: |
+    SELECT s.plan AS subscription_plan, p.currency, count(*) AS purchases, count(DISTINCT p.user_id) AS buyers, sum(p.amount) AS revenue
+    FROM purchases p
+    JOIN subscriptions s ON s.user_id = p.user_id AND (p.ts AT TIME ZONE 'UTC')::date >= s.started_on
+                        AND (s.ended_on IS NULL OR (p.ts AT TIME ZONE 'UTC')::date <= s.ended_on)
+    GROUP BY s.plan, p.currency ORDER BY 1, 2
+  right: |
+    SELECT coalesce((SELECT s.plan FROM subscriptions s WHERE s.user_id = p.user_id
+                     AND (p.ts AT TIME ZONE 'UTC')::date BETWEEN s.started_on AND coalesce(s.ended_on, DATE '9999-12-31') LIMIT 1), 'no subscription') AS subscription_plan,
+           p.currency, count(*) AS purchases, count(DISTINCT p.user_id) AS buyers, sum(p.amount) AS revenue
+    FROM purchases p GROUP BY 1, 2 ORDER BY 1, 2

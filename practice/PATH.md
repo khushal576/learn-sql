@@ -65,17 +65,17 @@ Every question of a step is checked by `/validate` (runs, returns rows, same row
 | 5 | Stage 3 — subqueries (correlated, EXISTS, relational division) | 16 | — | ✅ done |
 | 6 | Stage 4a — window functions I: ranking, top-N per group, dedupe | 15 | — | ✅ done |
 | 7 | Stage 4b — window functions II: running totals, LAG/LEAD, frames | 15 | — | ✅ done |
-| 8 | Tool: revisit queue (3-day / 10-day) + a "weak topics" view | — | — | next |
-| 9 | Stage 5 — CTEs and recursion | 18 | `logistics` | |
-| 10 | Stage 6 — dates and strings | 16 | `events` | |
-| 11 | Stage 7a — interview patterns I: gaps and islands, streaks, sessionization | 15 | — | |
-| 12 | Stage 7b — interview patterns II: funnels, retention, overlapping intervals | 15 | `hotel` | |
-| 13 | Stages 8 + 9 — data-modelling queries, JSONB and arrays | 22 | — | |
-| 14 | Stage 10 — performance reasoning (+ a plan-based check) | 14 | — | |
-| 15 | Stage 11a — mock interviews 1-12 (+ a 45-minute timer mode) | 12 sets | — | |
-| 16 | Stage 11b — mock interviews 13-25 | 13 sets | — | |
+| 8 | Tool: revisit queue (3-day / 10-day) + a "weak topics" view | — | — | ✅ done |
+| 9 | Stage 5 — CTEs and recursion | 18 | `logistics` | ✅ done |
+| 10 | Stage 6 — dates and strings | 16 | `events` | ✅ done |
+| 11 | Stage 7a — interview patterns I: gaps and islands, streaks, sessionization | 15 | — | ✅ done |
+| 12 | Stage 7b — interview patterns II: funnels, retention, overlapping intervals | 15 | `hotel` | ✅ done |
+| 13 | Stages 8 + 9 — data-modelling queries, JSONB and arrays | 22 | — | ✅ done |
+| 14 | Stage 10 — performance reasoning (+ a plan-based check) | 14 | `perf` | ✅ done |
+| 15 | Stage 11a — mock interviews 1-12 (+ a 45-minute timer mode) | 12 sets | — | ✅ done |
+| 16 | Stage 11b — mock interviews 13-25 | 13 sets | — | ✅ done |
 
-About 16 small steps. Step 8 is next (the revisit queue), then step 9. The warm-up (step 2) is there so you can judge the style (scenario, trap, follow-up) before the rest is written.
+All 16 steps are done: 198 single questions in 11 topics, 25 mock-interview sets (75 questions), 8 datasets (ecommerce, hr, school, bank, logistics, events, hotel, perf).
 
 ## Adding or changing questions
 

@@ -1,0 +1,30 @@
+id: ds-002
+title: Match pasted emails to users
+topic: dates-strings
+tags: [lower, trim, text-cleaning, in]
+difficulty: easy
+dataset: events
+prompt: |
+  Support received a spreadsheet of customers, all e-mail addresses typed in **lower case with no spaces**. Find their accounts:
+
+  `maya.kim1@mail.test`, `liam.chen2@corp.example`, `sofia.novak3@example.com`, `zara.smith5@corp.example`, `mei.muller7@mail.test`, `jon.silva28@mail.test`, `ana.muller29@corp.example`, `kofi.garcia30@example.com`, `nobody@mail.test`
+
+  The `users.email` column is messy (mixed case, stray spaces). Return `id`, ordered by `id`.
+solution_sql: |
+  SELECT id
+  FROM users
+  WHERE lower(trim(email)) IN ('maya.kim1@mail.test', 'liam.chen2@corp.example', 'sofia.novak3@example.com', 'zara.smith5@corp.example',
+                               'mei.muller7@mail.test', 'jon.silva28@mail.test', 'ana.muller29@corp.example', 'kofi.garcia30@example.com',
+                               'nobody@mail.test')
+  ORDER BY id
+compare: {order_matters: true}
+hints:
+  - "Compare like with like: normalise the stored value, not only the list."
+  - "Two functions: one for case, one for the stray spaces."
+trap: |
+  A plain `email IN (...)` is an exact comparison: it only finds the 2 users (1, 2) whose address happens to be stored in lower case without spaces, and silently misses the other 6 (`Sofia.Novak3@Example.Com`, `MEI.MULLER7@MAIL.TEST`, `ana.muller29@corp.example ` with a trailing space ...). Normalise with `lower(trim(email))` (and, in a real system, store it normalised).
+followup: |
+  "How would you make this lookup fast on 50 million users?" (An expression index on `lower(trim(email))`, or store a normalised column / `citext` and clean on write.)
+alternatives:
+  - |
+    SELECT u.id FROM users u JOIN (VALUES ('maya.kim1@mail.test'), ('liam.chen2@corp.example'), ('sofia.novak3@example.com'), ('zara.smith5@corp.example'), ('mei.muller7@mail.test'), ('jon.silva28@mail.test'), ('ana.muller29@corp.example'), ('kofi.garcia30@example.com'), ('nobody@mail.test')) v(e) ON lower(btrim(u.email)) = v.e ORDER BY u.id

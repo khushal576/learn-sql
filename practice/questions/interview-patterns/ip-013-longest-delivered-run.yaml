@@ -1,0 +1,39 @@
+id: ip-013
+title: Longest run of delivered orders
+topic: interview-patterns
+tags: [gaps-and-islands, run-length, two-row-numbers]
+difficulty: hard
+dataset: ecommerce
+prompt: |
+  Operations looks for customers with a perfect delivery record in a row. For **customers 1 to 60**, line up each customer's own orders by `id`. A **run** is a maximal sequence of consecutive orders of that customer (consecutive in THEIR list, other customers' orders in between do not matter) that all have status `delivered`.
+
+  For every customer with at least one delivered order return `customer_id` and `longest_run` (the length of the longest such run), ordered by `longest_run` descending, then `customer_id`.
+solution_sql: |
+  WITH r AS (
+    SELECT customer_id, status,
+           row_number() OVER (PARTITION BY customer_id ORDER BY id)
+         - row_number() OVER (PARTITION BY customer_id, status ORDER BY id) AS island
+    FROM orders WHERE customer_id <= 60),
+  s AS (
+    SELECT customer_id, island, count(*) AS len
+    FROM r WHERE status = 'delivered'
+    GROUP BY customer_id, island)
+  SELECT customer_id, max(len) AS longest_run
+  FROM s
+  GROUP BY customer_id
+  ORDER BY longest_run DESC, customer_id
+compare: {order_matters: true}
+hints:
+  - "Islands on VALUES, not on dates: number the customer's orders overall, number them again within the same status, and subtract."
+  - "Filter to 'delivered' only AFTER the two numberings, otherwise the other statuses can no longer separate the runs."
+trap: |
+  Using the order `id` as the sequence (`id - row_number() OVER (PARTITION BY customer_id, status ORDER BY id)`), like a date-based streak. That only works when the ids of one customer are consecutive numbers; here the ids of different customers are interleaved, so almost every run collapses to length 1 (the real leaders with 67 delivered orders in a row report 1). The position of the order in the customer's own list - a `row_number()` - is the sequence to use.
+followup: |
+  "Why two row_numbers?" (One counts all rows of the customer, the other only those of the same status; inside a run both grow by 1, so their difference is constant, and it changes when another status interrupts the run.) "How to get the start and end order id of the best run?" (`min(id)`, `max(id)` in the island grouping, then pick the longest.)
+alternatives:
+  - |
+    WITH o AS (SELECT customer_id, status, row_number() OVER (PARTITION BY customer_id ORDER BY id) AS pos FROM orders WHERE customer_id <= 60),
+    f AS (SELECT customer_id, pos, status, CASE WHEN lag(status) OVER (PARTITION BY customer_id ORDER BY pos) = status THEN 0 ELSE 1 END AS st FROM o),
+    g AS (SELECT *, sum(st) OVER (PARTITION BY customer_id ORDER BY pos) AS run FROM f),
+    c AS (SELECT customer_id, run, count(*) AS len FROM g WHERE status = 'delivered' GROUP BY 1, 2)
+    SELECT customer_id, max(len) AS longest_run FROM c GROUP BY 1 ORDER BY 2 DESC, 1

@@ -1,0 +1,25 @@
+id: mk-062
+title: "Month-end balances of one account"
+topic: mock-interviews
+tags: ["calendar", "generate_series", "running-total", "zero-fill"]
+difficulty: medium
+dataset: bank
+prompt: |
+  Audit picked **account 20**. They want its balance at the end of every month of 2024, where the balance is simply the sum of all its transactions up to and including that day (the account starts the year at 0). The audit wants all 12 month ends, also those months in which the account had no transaction at all - then the balance is just carried forward.
+  Return `month_end` (the last day of the month, a date) and `balance`, 12 rows ordered by `month_end`.
+solution_sql: |
+  SELECT (m.d + interval '1 month' - interval '1 day')::date AS month_end,
+         coalesce((SELECT sum(t.amount)
+                   FROM transactions t
+                   WHERE t.account_id = 20 AND t.tx_date < (m.d + interval '1 month')::date), 0) AS balance
+  FROM generate_series(DATE '2024-01-01', DATE '2024-12-01', interval '1 month') AS m(d)
+  ORDER BY month_end
+compare: {order_matters: true}
+hints:
+  - "A running total over a grouped monthly result only has rows for the months that exist - what do you need to build first?"
+  - "Generate the 12 months (generate_series) and for each one sum the transactions up to its end."
+  - "A month without transactions still has a balance: the sum of everything before. Use coalesce for the very first months."
+trap: |
+  Grouping the transactions by month and running a window sum over that result produces only the months in which something happened: for account 20 you get 5 rows instead of 12, and the empty months (and their carried-forward balance) are missing.
+followup: |
+  "The same for every account, in one query." Cross join accounts with the 12 months, or generate_series inside a LATERAL, and keep the partition by account in the window.

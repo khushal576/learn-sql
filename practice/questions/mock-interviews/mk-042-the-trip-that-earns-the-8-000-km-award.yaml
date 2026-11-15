@@ -1,0 +1,34 @@
+id: mk-042
+title: "The trip that earns the 8,000 km award"
+topic: mock-interviews
+tags: ["window", "running-total", "milestone"]
+difficulty: hard
+dataset: logistics
+prompt: |
+  Marek: "Our service award goes to a driver at the moment the kilometres they have **driven in 2024** reach 8,000." Cancelled trips never drove, so they do not count
+  (done and delayed trips do). Walk each driver's trips in chronological order (`started_at`, then `id` for ties).
+  For every driver who reaches 8,000 km in the year, return `driver_id`, `trip_id` (the trip that takes the running total to 8,000 or more for the first time),
+  `started_at` and `total_km` (the running total after that trip). Order by `driver_id`.
+solution_sql: |
+  WITH r AS (
+    SELECT driver_id, id, started_at,
+           sum(km) OVER (PARTITION BY driver_id ORDER BY started_at, id) AS total_km
+    FROM trips
+    WHERE status <> 'cancelled'
+  ), f AS (
+    SELECT *, row_number() OVER (PARTITION BY driver_id ORDER BY started_at, id) AS rn
+    FROM r WHERE total_km >= 8000
+  )
+  SELECT driver_id, id AS trip_id, started_at, total_km
+  FROM f WHERE rn = 1
+  ORDER BY driver_id
+compare: {order_matters: true}
+hints:
+  - "A running total is a window sum with ORDER BY inside OVER (and the tie-breaker id)."
+  - "You can not filter on a window result in the same SELECT: wrap it, then keep the FIRST row per driver at or above the threshold."
+  - "Decide where the cancelled trips are removed: before the running sum, not after it."
+trap: |
+  If the cancelled trips stay in the running total (or are only removed after the window), their km count towards the award, so many drivers get it one or more trips too early:
+  the wrong answer names a different (earlier) trip for all 40 drivers. (And forgetting the first-row-per-driver step returns every later trip as well.)
+followup: |
+  "Now give the award to the first driver in the whole company to hit it." Same CTE, ORDER BY started_at, id LIMIT 1 - the window already did the work.

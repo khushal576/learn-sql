@@ -1,0 +1,28 @@
+id: pf-007
+title: Pick list for one SKU
+topic: performance
+tags: [index, sargable, lower]
+difficulty: medium
+dataset: perf
+prompt: |
+  The warehouse needs the pick list for **`SKU-00042`**: every order line that contains it. `order_items` has 600 000 rows and an index on `sku` (2 000 distinct SKUs, about 300 lines each). The current query is slow because it was written to be "safe" about case.
+
+  Return `order_id`, `line_no`, `qty`, ordered by `order_id`, `line_no`.
+  Check also looks at the query plan: the table must not be read sequentially.
+solution_sql: |
+  SELECT order_id, line_no, qty FROM order_items WHERE sku = 'SKU-00042' ORDER BY order_id, line_no
+check:
+  type: plan
+  must_use: ["Index Scan|Index Only Scan|Bitmap Index Scan|Bitmap Heap Scan"]
+  must_not_use: ["Seq Scan on order_items"]
+  note: "the SKU lookup must use the index on order_items.sku"
+compare: {order_matters: true}
+hints:
+  - "SKUs are stored in one canonical spelling. Compare the bare column."
+  - "Anything done to the column (`lower()`, `upper()`, `trim()`, `LIKE '%..'`) hides it from a plain btree index."
+trap: |
+  `WHERE lower(sku) = 'sku-00042'` (or `upper(sku) = ...`, or `sku LIKE '%00042'`) returns the same 300 lines, yet a plain index on `sku` cannot serve a function of `sku`, so all 600 000 lines are read. A function wrapper is only safe when an index on that very expression exists (as for `lower(email)` on customers).
+followup: |
+  "Would you add an index on `lower(sku)` then?" (No: fix the data to one canonical case with a CHECK constraint; an extra index costs every insert.)
+alternatives:
+  - "SELECT order_id, line_no, qty FROM order_items WHERE sku IN ('SKU-00042') ORDER BY 1, 2"

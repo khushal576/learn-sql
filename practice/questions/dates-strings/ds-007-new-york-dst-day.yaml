@@ -1,0 +1,29 @@
+id: ds-007
+title: New York's short day
+topic: dates-strings
+tags: [dst, at-time-zone, timezone-database]
+difficulty: medium
+dataset: events
+prompt: |
+  On **2024-03-10** the United States moved its clocks forward (2:00 a.m. became 3:00 a.m. in New York), so that local day lasted only 23 hours. The product team wants to know what New York users did that day.
+
+  For users whose `tz` is `'America/New_York'`, count the events whose **local date in `America/New_York` is 2024-03-10**, per **local hour**. Return `local_hour` (integer) and `events`, ordered by `local_hour`.
+solution_sql: |
+  SELECT extract(hour FROM e.ts AT TIME ZONE 'America/New_York')::int AS local_hour, count(*) AS events
+  FROM events e
+  JOIN users u ON u.id = e.user_id
+  WHERE u.tz = 'America/New_York'
+    AND (e.ts AT TIME ZONE 'America/New_York')::date = date '2024-03-10'
+  GROUP BY 1
+  ORDER BY 1
+compare: {order_matters: true}
+hints:
+  - "The offset of New York is not constant: it is -05:00 before the switch and -04:00 after."
+  - "Name the zone instead of subtracting hours."
+trap: |
+  Subtracting a fixed 5 hours (`ts - interval '5 hours'`) is right only before the switch. After 07:00 UTC the real offset is -04:00, so 12 events are filed under local hour **2** — an hour that does not exist that day (clocks jumped from 01:59:59 to 03:00:00) — instead of hour 3, and others are shifted too. `AT TIME ZONE 'America/New_York'` applies the correct offset to each instant.
+followup: |
+  "What would a `generate_series` of local hours for that day return?" (23 hours: 02:00 does not exist; in autumn the day has 25 hours and 01:00 happens twice.)
+alternatives:
+  - |
+    SELECT date_part('hour', e.ts AT TIME ZONE 'America/New_York')::int AS local_hour, count(*) AS events FROM events e WHERE e.user_id IN (SELECT id FROM users WHERE tz = 'America/New_York') AND e.ts >= timestamptz '2024-03-10 00:00 America/New_York' AND e.ts < timestamptz '2024-03-11 00:00 America/New_York' GROUP BY 1 ORDER BY 1

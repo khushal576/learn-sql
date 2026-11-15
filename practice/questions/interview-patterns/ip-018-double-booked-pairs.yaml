@@ -1,0 +1,34 @@
+id: ip-018
+title: Double-booked rooms - list the pairs
+topic: interview-patterns
+tags: [overlap, self-join, intervals]
+difficulty: medium
+dataset: hotel
+prompt: |
+  The front desk suspects the booking engine sold some rooms twice. Find every pair of **confirmed** bookings of the **same room** whose stays overlap.
+  `check_out` is the morning the guest leaves, so a stay occupies the nights `check_in .. check_out - 1`: a stay ending on the 5th and another starting on the 5th do **not** overlap.
+  Cancelled and no-show bookings do not block a room.
+  Return `room_id`, `booking_a`, `booking_b` (the two booking ids, with `booking_a` < `booking_b` so each pair appears once), ordered by `room_id`, `booking_a`, `booking_b`.
+solution_sql: |
+  SELECT a.room_id, a.id AS booking_a, b.id AS booking_b
+  FROM bookings a
+  JOIN bookings b ON b.room_id = a.room_id AND a.id < b.id
+                 AND a.check_in < b.check_out AND b.check_in < a.check_out
+  WHERE a.status = 'confirmed' AND b.status = 'confirmed'
+  ORDER BY a.room_id, a.id, b.id
+compare: {order_matters: true}
+hints:
+  - "Two intervals overlap when each one starts before the other ends."
+  - "Because check_out is exclusive, the comparison must be strict (<), not <=."
+trap: |
+  Using `<=` (or `BETWEEN`) treats back-to-back stays - guest A leaves the morning guest B arrives - as conflicts: 547 pairs instead of the real 30.
+  Forgetting the status filter is a second leak (55 pairs, because 25 cancelled "twin" rows share dates with a confirmed booking).
+followup: |
+  "Why does a.id < b.id matter?" Without it every pair is returned twice (and a booking pairs with itself if you use <=); the single comparison makes each pair unique.
+alternatives:
+  - |
+    SELECT a.room_id, a.id AS booking_a, b.id AS booking_b
+    FROM bookings a, bookings b
+    WHERE a.room_id = b.room_id AND a.id < b.id AND a.status = 'confirmed' AND b.status = 'confirmed'
+      AND daterange(a.check_in, a.check_out) && daterange(b.check_in, b.check_out)
+    ORDER BY 1, 2, 3

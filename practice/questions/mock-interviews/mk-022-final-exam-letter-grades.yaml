@@ -1,0 +1,23 @@
+id: mk-022
+title: Final exam letter grades
+topic: mock-interviews
+tags: [range-join, grade-bands, window-share]
+difficulty: easy
+dataset: school
+prompt: |
+  The registrar needs the distribution of letter grades for the **final** exams. The table `grade_bands` maps a score to a letter: a score belongs to a band when it is **at least `min_score` and below `max_score`** (`min_score` inclusive, `max_score` exclusive; the A band runs up to 101 so that a 100 is an A).
+
+  Return `letter`, `final_exams` (number of final exam scores with that letter) and `share_pct` (the letter's share of all final exams, 0-100, rounded to 2 decimals), ordered by `letter`.
+solution_sql: |
+  SELECT g.letter,
+         count(*) AS final_exams,
+         round(100.0 * count(*) / sum(count(*)) OVER (), 2) AS share_pct
+  FROM scores s
+  JOIN grade_bands g ON s.score >= g.min_score AND s.score < g.max_score
+  WHERE s.exam = 'final'
+  GROUP BY g.letter
+  ORDER BY g.letter
+compare: {order_matters: true}
+hints: ['Join `scores` to `grade_bands` on a range, not on equality.', 'The band edges are chosen so that every score lies in exactly ONE band, if you respect which end is inclusive.']
+trap: '`BETWEEN min_score AND max_score` includes both ends, so a score of exactly 60, 70, 80 or 90 matches two bands and is counted twice: 12 final exams are double counted (411 rows instead of 399) and the shares are all slightly wrong (B shows 62 exams instead of 57). Use `>= min_score AND < max_score`.'
+followup: '"What if the bands could overlap or leave holes?" (Add a constraint or check query: bands must tile the range without gaps, e.g. each band''s `min_score` equals the previous band''s `max_score`.)'

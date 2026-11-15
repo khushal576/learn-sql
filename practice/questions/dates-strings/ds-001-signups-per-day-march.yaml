@@ -1,0 +1,27 @@
+id: ds-001
+title: Daily signups in March
+topic: dates-strings
+tags: [timestamptz, date-range, at-time-zone]
+difficulty: easy
+dataset: events
+prompt: |
+  Growth wants a daily signup chart for **March 2024**, with days cut at midnight **in UTC**. `users.signup_at` is a `timestamptz`.
+
+  Return `signup_date` (a `date`) and `signups` (number of users), ordered by `signup_date`. Every day of March that has signups appears once.
+solution_sql: |
+  SELECT (signup_at AT TIME ZONE 'UTC')::date AS signup_date, count(*) AS signups
+  FROM users
+  WHERE signup_at >= timestamptz '2024-03-01 00:00+00' AND signup_at < timestamptz '2024-04-01 00:00+00'
+  GROUP BY 1
+  ORDER BY 1
+compare: {order_matters: true}
+hints:
+  - "A `timestamptz` compared with the text `'2024-03-31'` means midnight at the START of the 31st."
+  - "Use a half-open range: `>= first instant of March` and `< first instant of April`."
+trap: |
+  `BETWEEN '2024-03-01' AND '2024-03-31'` ends at **2024-03-31 00:00:00**, so everything signing up later on the 31st is lost: the whole day disappears (30 rows instead of 31; 8 signups lost, 240 instead of 248). Half-open ranges (`>= start AND < next start`) are the safe habit for timestamps.
+followup: |
+  "Why did you write `AT TIME ZONE 'UTC'` before `::date`?" (A plain `signup_at::date` uses the session's time zone; the answer should not depend on who runs it.)
+alternatives:
+  - |
+    SELECT d AS signup_date, count(*) AS signups FROM (SELECT (signup_at AT TIME ZONE 'UTC')::date AS d FROM users) t WHERE d BETWEEN date '2024-03-01' AND date '2024-03-31' GROUP BY d ORDER BY d

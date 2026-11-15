@@ -1,0 +1,29 @@
+id: mk-001
+title: Revenue by country, delivered 2023
+topic: mock-interviews
+tags: [join, group-by, fan-out]
+difficulty: easy
+dataset: ecommerce
+prompt: |
+  Marketplace finance is preparing the 2023 annual report. For **delivered** orders placed in calendar year **2023**, give one line per customer `country`:
+
+  - `orders`: number of orders
+  - `units`: total quantity of items sold
+  - `revenue`: money actually charged, i.e. the sum of `quantity * unit_price` over the order lines
+
+  Return `country`, `orders`, `units`, `revenue`, ordered by `revenue` descending, then `country`. (Numbers are compared rounded to 2 decimals.)
+solution_sql: |
+  SELECT c.country,
+         count(DISTINCT o.id) AS orders,
+         sum(i.quantity) AS units,
+         sum(i.quantity * i.unit_price) AS revenue
+  FROM orders o
+  JOIN customers c ON c.id = o.customer_id
+  JOIN order_items i ON i.order_id = o.id
+  WHERE o.status = 'delivered' AND o.order_date >= '2023-01-01' AND o.order_date < '2024-01-01'
+  GROUP BY c.country
+  ORDER BY revenue DESC, c.country
+compare: {order_matters: true}
+hints: ['Revenue lives on `order_items`; the country lives on `customers`. Which orders connect them?', 'Is the price you were charged the same column as the catalogue price?']
+trap: '`order_items.unit_price` is the price **paid**; `products.price` is today''s catalogue price and differs on many lines. Using the catalogue price inflates UK revenue to 776,710.22 instead of 776,068.22 (and every other country is off too). Also remember an order has several lines, so `orders` must be `count(DISTINCT o.id)`, not `count(*)`.'
+followup: '"Finance says the numbers must tie to the payments table: how would you verify it?" (Sum `payments.amount` for the same orders: for this data every payment equals its order''s line total.)'

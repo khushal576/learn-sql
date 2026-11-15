@@ -1,0 +1,29 @@
+id: mk-058
+title: "Review profile of three categories"
+topic: mock-interviews
+tags: ["left-join", "count", "null"]
+difficulty: easy
+dataset: ecommerce
+prompt: |
+  Jonas: "For the products in categories 3, 4 and 5 (Laptops, Desktops, Phones) show me how well they are reviewed - including the ones nobody has reviewed yet."
+  Return one row per product of those three categories: `product_id`, `name`, `reviews` (number of reviews), `written_reviews` (reviews that have a text `body`; a rating alone does not count) and `avg_rating` (rounded to 2 decimals; NULL when there are no reviews).
+  Order by `product_id`.
+solution_sql: |
+  SELECT p.id AS product_id, p.name,
+         count(r.id) AS reviews,
+         count(r.body) AS written_reviews,
+         round(avg(r.rating), 2) AS avg_rating
+  FROM products p
+  LEFT JOIN reviews r ON r.product_id = p.id
+  WHERE p.category_id IN (3, 4, 5)
+  GROUP BY p.id, p.name
+  ORDER BY p.id
+compare: {order_matters: true}
+hints:
+  - "Products without reviews must stay in the result: which side of the join is preserved?"
+  - "count(column) skips NULLs, count(*) does not."
+  - "avg() over no rows is NULL - that is the expected value for unreviewed products."
+trap: |
+  An inner join silently drops the products without reviews (3 of the 36 products - ids 111, 112 and 120 - are never reviewed), so the wrong query returns 33 rows. Counting written reviews with count(*) instead of count(body) would also count rating-only reviews.
+followup: |
+  "Only list products rated below 3.0 on average." HAVING avg(r.rating) < 3 - and note that unreviewed products (NULL average) are not 'below 3' in SQL.

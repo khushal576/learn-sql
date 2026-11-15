@@ -1,0 +1,31 @@
+id: pf-006
+title: Customers who never ordered (a slice)
+topic: performance
+tags: [anti-join, not-exists, not-in]
+difficulty: medium
+dataset: perf
+prompt: |
+  Marketing wants a win-back list: customers **with id from 40001 to 41000** who have **never placed an order**. `orders` has 300 000 rows and an index on `customer_id`; the list must be built as an *anti join* that probes the index per customer instead of reading all orders.
+
+  Return `id` of those customers, ordered by `id`.
+  Check also looks at the query plan: an anti join, and no sequential scan of `orders`.
+solution_sql: |
+  SELECT c.id FROM customers c
+  WHERE c.id BETWEEN 40001 AND 41000
+    AND NOT EXISTS (SELECT 1 FROM orders o WHERE o.customer_id = c.id)
+  ORDER BY c.id
+check:
+  type: plan
+  must_use: ["Anti Join"]
+  must_not_use: ["Seq Scan on orders"]
+  note: "write it as an anti join that probes orders by customer_id"
+compare: {order_matters: true}
+hints:
+  - "'Has no matching row' is NOT EXISTS territory: the engine can stop at the first match per customer."
+  - "Which of the three classic forms (NOT IN, LEFT JOIN ... IS NULL, NOT EXISTS) does the planner turn into a real anti join?"
+trap: |
+  `LEFT JOIN orders o ON o.customer_id = c.id WHERE o.id IS NULL` is correct (250 customers) but Postgres plans it as an ordinary outer join that reads all 300 000 orders into a hash. `NOT IN (SELECT customer_id FROM orders)` is worse: it cannot become an anti join at all (NULL semantics) and is re-evaluated against a materialized copy of orders. NOT EXISTS becomes a nested anti join probing the index once per customer.
+followup: |
+  "What does NOT IN return if one `orders.customer_id` is NULL?" (No rows at all, because `x <> NULL` is unknown. NOT EXISTS has no such trap.)
+alternatives:
+  - "SELECT c.id FROM customers c WHERE c.id BETWEEN 40001 AND 41000 AND NOT EXISTS (SELECT * FROM orders o WHERE o.customer_id = c.id) ORDER BY 1"

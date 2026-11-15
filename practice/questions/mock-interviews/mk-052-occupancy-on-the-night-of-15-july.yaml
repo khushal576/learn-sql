@@ -1,0 +1,28 @@
+id: mk-052
+title: "Occupancy on the night of 15 July"
+topic: mock-interviews
+tags: ["left-join", "occupancy", "half-open-range"]
+difficulty: easy
+dataset: hotel
+prompt: |
+  Ravi: "How full were we on the night of **2024-07-15**?" A room is occupied that night when a confirmed booking has `check_in <= 2024-07-15` and `check_out > 2024-07-15`.
+  For each room type return `room_type`, `total_rooms`, `occupied_rooms` (distinct rooms occupied that night) and `occupancy_pct` (0-100, rounded to 2 decimals). Include every type; order by `room_type`.
+solution_sql: |
+  SELECT r.type AS room_type,
+         count(DISTINCT r.id) AS total_rooms,
+         count(DISTINCT r.id) FILTER (WHERE b.id IS NOT NULL) AS occupied_rooms,
+         round(100.0 * count(DISTINCT r.id) FILTER (WHERE b.id IS NOT NULL) / count(DISTINCT r.id), 2) AS occupancy_pct
+  FROM rooms r
+  LEFT JOIN bookings b ON b.room_id = r.id AND b.status = 'confirmed'
+                      AND b.check_in <= DATE '2024-07-15' AND b.check_out > DATE '2024-07-15'
+  GROUP BY r.type
+  ORDER BY r.type
+compare: {order_matters: true}
+hints:
+  - "Start from rooms and LEFT JOIN the bookings of that night, so empty rooms still count in the total."
+  - "The booking covers the night when check_in <= night < check_out."
+  - "Count distinct rooms: a room could in theory carry two overlapping bookings."
+trap: |
+  `check_out >= '2024-07-15'` counts guests who are leaving on the morning of the 15th as if they slept there: doubles 10 occupied rooms instead of 8 and suites 4 instead of 2 - the occupancy is overstated.
+followup: |
+  "Now for every night of July." Join rooms to generate_series of dates (a calendar) instead of a single literal - same half-open condition.

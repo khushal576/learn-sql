@@ -1,0 +1,30 @@
+id: pf-009
+title: A whole family of SKUs
+topic: performance
+tags: [index, like, prefix, range, collation]
+difficulty: medium
+dataset: perf
+prompt: |
+  Merchandising wants the sales lines of the SKU family **`SKU-00040` to `SKU-00049`** (the ten SKUs `SKU-00040`, `SKU-00041`, ... `SKU-00049`). The `order_items` table (600 000 rows) has an index on `sku`. The analyst's `LIKE 'SKU-0004_'` query reads everything.
+
+  Return `sku`, `lines` (number of lines), `units` (sum of `qty`) per SKU, ordered by `sku`.
+  Check also looks at the query plan: the family must be fetched through the index.
+solution_sql: |
+  SELECT sku, count(*) AS lines, sum(qty) AS units FROM order_items WHERE sku >= 'SKU-00040' AND sku <= 'SKU-00049' GROUP BY sku ORDER BY sku
+check:
+  type: plan
+  must_use: ["Index Scan|Index Only Scan|Bitmap Index Scan|Bitmap Heap Scan"]
+  must_not_use: ["Seq Scan on order_items"]
+  note: "the SKU family must be fetched through the index on order_items.sku"
+compare: {order_matters: true}
+hints:
+  - "A plain btree index serves equality and *range* comparisons on the bare column."
+  - "LIKE with a fixed prefix is not always index-friendly: it depends on the database collation and operator class. What can you write instead of a pattern?"
+trap: |
+  `WHERE sku LIKE 'SKU-0004_'` is a prefix pattern and looks indexable, but with this database's `en_US.utf8` collation a plain btree can NOT serve LIKE (only an index built with `text_pattern_ops` can), so Postgres reads all 600 000 lines. The same 10 SKUs fetched with `BETWEEN`/`>= AND <=` or an `IN` list use the index.
+followup: |
+  "How do you make `LIKE 'abc%'` indexable?" (Create the index with `text_pattern_ops`, or use the C collation on that column.)
+alternatives:
+  - "SELECT sku, count(*) AS lines, sum(qty) AS units FROM order_items WHERE sku BETWEEN 'SKU-00040' AND 'SKU-00049' GROUP BY sku ORDER BY sku"
+  - |
+    SELECT sku, count(*) AS lines, sum(qty) AS units FROM order_items WHERE sku IN ('SKU-00040','SKU-00041','SKU-00042','SKU-00043','SKU-00044','SKU-00045','SKU-00046','SKU-00047','SKU-00048','SKU-00049') GROUP BY sku ORDER BY sku

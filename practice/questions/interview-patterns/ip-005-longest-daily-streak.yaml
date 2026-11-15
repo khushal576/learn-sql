@@ -1,0 +1,38 @@
+id: ip-005
+title: Longest daily streak per user
+topic: interview-patterns
+tags: [gaps-and-islands, streak, row-number, dedupe]
+difficulty: medium
+dataset: events
+prompt: |
+  The growth team wants to reward consistency. A user is **active on a day** if they have at least one event on that calendar day **in UTC**. A **streak** is a run of consecutive active days. For **users 1 to 30**, find each user's **longest streak** (in days).
+
+  Return `user_id`, `longest_streak_days`, ordered by `longest_streak_days` descending, then `user_id`.
+solution_sql: |
+  WITH d AS (
+    SELECT DISTINCT user_id, (ts AT TIME ZONE 'UTC')::date AS day
+    FROM events WHERE user_id <= 30),
+  i AS (
+    SELECT user_id, day - (row_number() OVER (PARTITION BY user_id ORDER BY day))::int AS island
+    FROM d),
+  s AS (
+    SELECT user_id, island, count(*) AS days FROM i GROUP BY user_id, island)
+  SELECT user_id, max(days) AS longest_streak_days
+  FROM s
+  GROUP BY user_id
+  ORDER BY longest_streak_days DESC, user_id
+compare: {order_matters: true}
+hints:
+  - "Classic trick: for consecutive days, `day - row_number()` is constant inside a run and jumps when a day is skipped."
+  - "A user has many events per day. What does row_number() count if you number events and not days?"
+trap: |
+  Numbering the raw events (`row_number() OVER (PARTITION BY user_id ORDER BY ts)`) instead of the distinct days. A user with 10 events on one day makes the numbers grow faster than the days, so `day - row_number()` changes inside a single run and the streak is cut into pieces: user 9, whose real longest streak is 12 days, shows only 3, and the whole ranking changes. Deduplicate to one row per user and day BEFORE the row_number trick (or use `dense_rank` over the day).
+followup: |
+  "Why does `day - row_number()` work at all?" (Consecutive days increase by 1 and so does row_number, so the difference is constant; a skipped day makes the day jump by more than 1 and the difference grows - a new island id.) "Alternative without the trick?" (Flag `day - lag(day) > 1` as a start and take a running sum of the flags.)
+alternatives:
+  - |
+    WITH d AS (SELECT DISTINCT user_id, (ts AT TIME ZONE 'UTC')::date AS day FROM events WHERE user_id <= 30),
+    f AS (SELECT user_id, day, CASE WHEN day - lag(day) OVER (PARTITION BY user_id ORDER BY day) = 1 THEN 0 ELSE 1 END AS new_run FROM d),
+    r AS (SELECT user_id, sum(new_run) OVER (PARTITION BY user_id ORDER BY day) AS run FROM f),
+    c AS (SELECT user_id, run, count(*) AS n FROM r GROUP BY user_id, run)
+    SELECT user_id, max(n) AS longest_streak_days FROM c GROUP BY user_id ORDER BY 2 DESC, 1

@@ -1,0 +1,32 @@
+id: rc-002
+title: Chain of command above an analyst
+topic: recursive-cte
+tags:
+- recursive
+- hierarchy
+- upward
+difficulty: easy
+dataset: hr
+prompt: |
+  Compliance needs the **escalation chain** for employee **120**. List every person *above* them: the direct manager first, then that manager's manager, all the way up to the CEO.
+
+  Return `level` (1 = direct manager, 2 = the manager's manager, ...), `id`, `name`, `job_title`, ordered by `level`.
+solution_sql: |
+  WITH RECURSIVE up AS (
+    SELECT m.id, m.name, m.job_title, m.manager_id, 1 AS level
+    FROM employees e JOIN employees m ON m.id = e.manager_id
+    WHERE e.id = 120
+    UNION ALL
+    SELECT m.id, m.name, m.job_title, m.manager_id, u.level + 1
+    FROM up u JOIN employees m ON m.id = u.manager_id
+  )
+  SELECT level, id, name, job_title FROM up ORDER BY level
+compare:
+  order_matters: true
+hints:
+- 'The recursion can walk UP the tree: each step joins the previous row''s `manager_id` to `employees.id`.'
+- The anchor is the direct manager of 120, not 120 himself.
+trap: |
+  One self-join gives only the direct manager (1 row); the chain has 3 people (a director, a VP and the CEO), and a fixed number of joins breaks as soon as the company adds a level. Recursion stops by itself when `manager_id` is NULL at the CEO.
+followup: |
+  "Now do it for every employee at once: show each person's number of levels above them." (Anchor on all employees and carry the starting id through the recursion.)

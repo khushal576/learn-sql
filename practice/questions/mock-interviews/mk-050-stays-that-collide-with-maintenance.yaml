@@ -1,0 +1,27 @@
+id: mk-050
+title: "Stays that collide with maintenance"
+topic: mock-interviews
+tags: ["overlap", "inclusive-range", "join"]
+difficulty: medium
+dataset: hotel
+prompt: |
+  Tomas: "Maintenance does not care about guests. Which confirmed stays collide with a maintenance window of the same room?"
+  A maintenance window blocks the room on every day from `start_date` to `end_date` **inclusive**. A stay occupies the nights `check_in` .. `check_out - 1`. They collide when they share at least one day.
+  Return one row per colliding pair: `booking_id`, `maintenance_id`, `room_id`, ordered by `booking_id`, `maintenance_id`.
+solution_sql: |
+  SELECT b.id AS booking_id, m.id AS maintenance_id, b.room_id
+  FROM bookings b
+  JOIN maintenance m ON m.room_id = b.room_id
+                    AND m.start_date < b.check_out
+                    AND b.check_in <= m.end_date
+  WHERE b.status = 'confirmed'
+  ORDER BY b.id, m.id
+compare: {order_matters: true}
+hints:
+  - "Two ranges overlap when each starts before the other ends - then decide for each side whether 'ends' is inclusive or exclusive."
+  - "The stay's end is exclusive (check_out), the window's end is inclusive (end_date)."
+  - "Filter on status = 'confirmed'."
+trap: |
+  Treating end_date as exclusive too (`b.check_in < m.end_date`) misses the stays that begin on the very last maintenance day: 26 pairs instead of the real 30. Using `<=` on the check_out side instead produces false positives (36).
+followup: |
+  "Show how many nights of each stay are lost." The overlap length is least(check_out, end_date + 1) - greatest(check_in, start_date).

@@ -1,0 +1,190 @@
+dm-001:
+  wrong: |
+    SELECT table_name, count(*) AS column_count FROM information_schema.columns
+    WHERE table_name IN (SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema())
+    GROUP BY table_name ORDER BY table_name
+  right: |
+    SELECT c.relname AS table_name, count(*) AS column_count
+    FROM pg_class c JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped
+    WHERE c.relnamespace = current_schema()::regnamespace AND c.relkind = 'r'
+    GROUP BY c.relname ORDER BY c.relname
+dm-002:
+  wrong: |
+    SELECT conrelid::regclass::text AS table_name, cardinality(conkey) AS key_columns
+    FROM pg_constraint WHERE contype IN ('p', 'u') AND connamespace = current_schema()::regnamespace AND cardinality(conkey) > 1 ORDER BY 1
+  right: |
+    SELECT c.conrelid::regclass::text AS table_name, count(*)::int AS key_columns
+    FROM pg_constraint c CROSS JOIN LATERAL unnest(c.conkey) AS k(attnum)
+    WHERE c.contype = 'p' AND c.connamespace = current_schema()::regnamespace
+    GROUP BY c.oid, 1 HAVING count(*) > 1 ORDER BY 1
+dm-003:
+  wrong: |
+    SELECT c.conrelid::regclass::text AS table_name, a.attname AS columns, c.confrelid::regclass::text AS referenced_table
+    FROM pg_constraint c JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = ANY (c.conkey)
+    WHERE c.contype = 'f' AND c.connamespace = current_schema()::regnamespace ORDER BY 1, 2
+  right: |
+    SELECT c.conrelid::regclass::text AS table_name, string_agg(a.attname, ', ' ORDER BY array_position(c.conkey, a.attnum)) AS columns, c.confrelid::regclass::text AS referenced_table
+    FROM pg_constraint c JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = ANY (c.conkey)
+    WHERE c.contype = 'f' AND c.connamespace = current_schema()::regnamespace
+    GROUP BY c.oid, 1, 3 ORDER BY 1, 2
+dm-004:
+  wrong: |
+    SELECT s.id, CASE WHEN e.id IS NULL THEN 'insert' WHEN e.salary <> s.salary OR e.commission <> s.commission THEN 'update' ELSE 'unchanged' END AS action
+    FROM (VALUES (7, 124900.00, NULL::numeric), (8, 130000.00, NULL), (9, 126300.00, 500.00), (10, 127000.00, NULL), (36, 72868.00, 612.00), (45, 81085.00, NULL), (251, 50000.00, NULL), (252, 51000.00, 100.00)) AS s(id, salary, commission)
+    LEFT JOIN employees e ON e.id = s.id ORDER BY s.id
+  right: |
+    SELECT s.id, CASE WHEN NOT EXISTS (SELECT 1 FROM employees e WHERE e.id = s.id) THEN 'insert'
+                      WHEN EXISTS (SELECT 1 FROM employees e WHERE e.id = s.id AND e.salary IS NOT DISTINCT FROM s.salary AND e.commission IS NOT DISTINCT FROM s.commission) THEN 'unchanged'
+                      ELSE 'update' END AS action
+    FROM (VALUES (7, 124900.00, NULL::numeric), (8, 130000.00, NULL), (9, 126300.00, 500.00), (10, 127000.00, NULL), (36, 72868.00, 612.00), (45, 81085.00, NULL), (251, 50000.00, NULL), (252, 51000.00, 100.00)) AS s(id, salary, commission)
+    ORDER BY s.id
+dm-005:
+  wrong: |
+    SELECT u.id AS user_id, u.plan AS stored_plan, s.plan AS current_plan
+    FROM users u JOIN subscriptions s ON s.user_id = u.id
+    WHERE u.plan <> s.plan AND EXISTS (SELECT 1 FROM subscriptions c WHERE c.user_id = u.id AND c.ended_on IS NULL)
+    ORDER BY u.id, s.id
+  right: |
+    SELECT u.id AS user_id, u.plan AS stored_plan, s.plan AS current_plan
+    FROM subscriptions s, users u
+    WHERE s.ended_on IS NULL AND u.id = s.user_id AND s.plan IS DISTINCT FROM u.plan
+    ORDER BY 1
+dm-006:
+  wrong: |
+    SELECT e.id, e.salary AS old_salary, round(e.salary * (1 + s.pct / 100), 2) AS new_salary
+    FROM employees e
+    JOIN (VALUES (2, 3.0, DATE '2024-01-01'), (2, 5.0, DATE '2024-04-01'), (2, 9.0, DATE '2024-09-01'),
+                 (3, 4.0, DATE '2024-02-01'), (5, 2.5, DATE '2024-05-01'), (5, 6.0, DATE '2025-01-01')) AS s(dept_id, pct, valid_from)
+      ON s.dept_id = e.dept_id
+    ORDER BY e.id, s.valid_from
+  right: |
+    SELECT e.id, e.salary AS old_salary, round(e.salary * (1 + s.pct / 100), 2) AS new_salary
+    FROM employees e
+    JOIN (VALUES (2, 3.0, DATE '2024-01-01'), (2, 5.0, DATE '2024-04-01'), (2, 9.0, DATE '2024-09-01'),
+                 (3, 4.0, DATE '2024-02-01'), (5, 2.5, DATE '2024-05-01'), (5, 6.0, DATE '2025-01-01')) AS s(dept_id, pct, valid_from)
+      ON s.dept_id = e.dept_id
+    WHERE s.valid_from = (SELECT max(t.valid_from) FROM (VALUES (2, DATE '2024-01-01'), (2, DATE '2024-04-01'), (2, DATE '2024-09-01'),
+                 (3, DATE '2024-02-01'), (5, DATE '2024-05-01'), (5, DATE '2025-01-01')) AS t(d, valid_from)
+                 WHERE t.d = e.dept_id AND t.valid_from <= DATE '2024-06-30')
+    ORDER BY e.id
+dm-007:
+  wrong: |
+    SELECT e.id, e.salary AS stored_salary, h.salary AS history_salary
+    FROM employees e
+    JOIN LATERAL (SELECT salary FROM salary_history WHERE emp_id = e.id ORDER BY effective_date DESC LIMIT 1) h ON true
+    WHERE e.salary <> h.salary ORDER BY e.id
+  right: |
+    SELECT id, stored_salary, history_salary FROM (
+      SELECT e.id, e.salary AS stored_salary, h.salary AS history_salary,
+             row_number() OVER (PARTITION BY e.id ORDER BY h.effective_date DESC) AS rn
+      FROM employees e JOIN salary_history h ON h.emp_id = e.id AND h.effective_date <= DATE '2024-06-30') x
+    WHERE rn = 1 AND stored_salary <> history_salary ORDER BY id
+dm-008:
+  wrong: |
+    SELECT id FROM (SELECT id, row_number() OVER (PARTITION BY user_id, ts ORDER BY id DESC) AS rn FROM events) x WHERE rn > 1 ORDER BY id
+  right: |
+    SELECT a.id FROM events a
+    WHERE EXISTS (SELECT 1 FROM events b WHERE b.user_id = a.user_id AND b.ts = a.ts AND b.name = a.name AND b.id > a.id)
+    ORDER BY a.id
+dm-009:
+  wrong: |
+    SELECT id, name, city FROM (SELECT id, name, city, count(*) OVER (PARTITION BY name) AS n FROM customers) x WHERE n > 1 ORDER BY name, city, id
+  right: |
+    SELECT c.id, c.name, c.city FROM customers c
+    WHERE c.city IS NOT NULL AND EXISTS (SELECT 1 FROM customers o WHERE o.name = c.name AND o.city = c.city AND o.id <> c.id)
+    ORDER BY c.name, c.city, c.id
+dm-010:
+  wrong: |
+    SELECT c.table_name, c.column_name,
+           (xpath('/row/n/text()', x.r))[1]::text::int AS null_rows,
+           (xpath('/row/t/text()', x.r))[1]::text::int AS total_rows
+    FROM information_schema.columns c
+    CROSS JOIN LATERAL query_to_xml(format('SELECT count(*) - count(%I) AS n, count(*) AS t FROM %I.%I', c.column_name, c.table_schema, c.table_name), false, true, '') AS x(r)
+    WHERE c.table_schema = current_schema()
+    ORDER BY c.table_name, c.column_name
+  right: |
+    SELECT a.attrelid::regclass::text AS table_name, a.attname AS column_name,
+           (xpath('/row/n/text()', x.r))[1]::text::int AS null_rows,
+           (xpath('/row/t/text()', x.r))[1]::text::int AS total_rows
+    FROM pg_attribute a JOIN pg_class k ON k.oid = a.attrelid
+    CROSS JOIN LATERAL query_to_xml(format('SELECT count(*) - count(%I) AS n, count(*) AS t FROM %s', a.attname, a.attrelid::regclass), false, true, '') AS x(r)
+    WHERE k.relnamespace = current_schema()::regnamespace AND k.relkind = 'r' AND a.attnum > 0 AND NOT a.attisdropped AND NOT a.attnotnull
+    ORDER BY 1, 2
+ja-001:
+  wrong: |
+    SELECT props -> 'page' AS page, count(*) AS views FROM events WHERE name = 'page_view' GROUP BY 1 ORDER BY views DESC, 1::text
+  right: |
+    SELECT props #>> '{page}' AS page, count(*) AS views FROM events WHERE name = 'page_view' GROUP BY 1 ORDER BY 2 DESC, 1
+ja-002:
+  wrong: |
+    SELECT id FROM users WHERE 'beta' = ANY(tags) ORDER BY id
+  right: |
+    SELECT id FROM users WHERE lower(tags::text)::text[] @> ARRAY['beta'] ORDER BY id
+ja-003:
+  wrong: |
+    SELECT id FROM users WHERE array_length(tags, 1) = 0 OR tags IS NULL AND false ORDER BY id
+  right: |
+    SELECT id FROM users WHERE coalesce(cardinality(tags), 0) = 0 ORDER BY id
+ja-004:
+  wrong: |
+    SELECT CASE WHEN props IS NULL THEN 'sql_null' WHEN props = '{}'::jsonb THEN 'empty_object' ELSE 'has_data' END AS state, count(*) AS events FROM events GROUP BY 1 ORDER BY 1
+  right: |
+    SELECT state, count(*) AS events FROM (SELECT CASE WHEN props IS NULL THEN 'sql_null' WHEN props = 'null'::jsonb THEN 'json_null' WHEN props = '{}'::jsonb THEN 'empty_object' ELSE 'has_data' END AS state FROM events) s GROUP BY state ORDER BY state
+ja-005:
+  wrong: |
+    SELECT CASE WHEN props ->> 'referrer' IS NULL THEN 'absent' ELSE 'value' END AS referrer_state, count(*) AS events FROM events WHERE name = 'page_view' GROUP BY 1 ORDER BY 1
+  right: |
+    SELECT CASE WHEN jsonb_path_exists(props, '$.referrer ? (@ == null)') THEN 'explicit_null' WHEN jsonb_path_exists(props, '$.referrer') THEN 'value' ELSE 'absent' END AS referrer_state, count(*) AS events
+    FROM events WHERE name = 'page_view' GROUP BY 1 ORDER BY 1
+ja-006:
+  wrong: |
+    SELECT props #>> '{utm,source}' AS source, count(*) AS signups FROM events WHERE name = 'signup' AND props ? 'utm' GROUP BY 1 ORDER BY 2 DESC, 1
+  right: |
+    SELECT coalesce(props -> 'utm' ->> 'source', 'direct') AS source, count(*) AS signups FROM events WHERE name = 'signup' GROUP BY 1 ORDER BY 2 DESC, 1
+ja-007:
+  wrong: |
+    SELECT i ->> 'sku' AS sku, count(*) AS units FROM events e, jsonb_array_elements(e.props -> 'items') i WHERE e.name = 'purchase' GROUP BY 1 ORDER BY 1
+  right: |
+    SELECT x.sku, sum(x.qty) AS units FROM events e, jsonb_to_recordset(e.props -> 'items') AS x(sku text, qty int) WHERE e.name = 'purchase' GROUP BY x.sku ORDER BY x.sku
+ja-008:
+  wrong: |
+    SELECT lower(t) AS tag, count(DISTINCT u.id) AS users FROM users u, unnest(u.tags) t GROUP BY 1 ORDER BY 2 DESC, 1
+  right: |
+    SELECT tag, count(*) AS users FROM (
+      SELECT DISTINCT u.id, lower(t) AS tag FROM users u, unnest(u.tags) AS t
+      UNION SELECT id, 'untagged' FROM users WHERE coalesce(cardinality(tags), 0) = 0) x
+    GROUP BY tag ORDER BY users DESC, tag
+ja-009:
+  wrong: |
+    SELECT props ->> 'feature' AS feature, count(*) AS events FROM events WHERE name = 'feature_used' AND props -> 'tags' ?| array['pro', 'beta'] GROUP BY 1 ORDER BY 2 DESC, 1
+  right: |
+    SELECT props ->> 'feature' AS feature, count(*) AS events FROM events WHERE name = 'feature_used' AND props -> 'tags' ?& array['pro', 'beta'] GROUP BY 1 ORDER BY 2 DESC, 1
+ja-010:
+  wrong: |
+    SELECT coalesce(e.props ->> 'coupon', 'none') AS coupon, count(*) AS purchases, round(avg(p.amount), 2) AS avg_amount
+    FROM events e JOIN purchases p ON p.user_id = e.user_id WHERE e.name = 'purchase' AND p.currency = 'USD' GROUP BY 1 ORDER BY 1
+  right: |
+    SELECT coalesce(e.props ->> 'coupon', 'none') AS coupon, count(*) AS purchases, round(avg(p.amount), 2) AS avg_amount
+    FROM purchases p JOIN events e ON (e.user_id, e.ts) = (p.user_id, p.ts) AND e.name = 'purchase'
+    WHERE p.currency = 'USD' GROUP BY 1 ORDER BY 1
+ja-011:
+  wrong: |
+    SELECT id FROM events WHERE name = 'purchase' AND ts >= '2024-03-01 00:00+00' AND ts < '2024-04-01 00:00+00'
+      AND props -> 'items' @> '[{"sku":"A1"}]' AND jsonb_path_exists(props, '$.items[*] ? (@.qty >= 2)') ORDER BY id
+  right: |
+    SELECT e.id FROM events e
+    WHERE e.name = 'purchase' AND e.ts >= '2024-03-01 00:00+00' AND e.ts < '2024-04-01 00:00+00'
+      AND EXISTS (SELECT 1 FROM jsonb_array_elements(e.props -> 'items') i WHERE i ->> 'sku' = 'A1' AND (i ->> 'qty')::int >= 2)
+    ORDER BY e.id
+ja-012:
+  wrong: |
+    SELECT e.user_id, jsonb_object_agg(i ->> 'sku', (i ->> 'qty')::int) AS basket
+    FROM events e CROSS JOIN LATERAL jsonb_array_elements(e.props -> 'items') AS i
+    WHERE e.name = 'purchase' AND e.user_id <= 60 GROUP BY 1 ORDER BY 1
+  right: |
+    SELECT u.user_id, (SELECT jsonb_object_agg(t.sku, t.units)
+                       FROM (SELECT i ->> 'sku' AS sku, sum((i ->> 'qty')::int) AS units
+                             FROM events e2, jsonb_array_elements(e2.props -> 'items') i
+                             WHERE e2.name = 'purchase' AND e2.user_id = u.user_id GROUP BY 1) t) AS basket
+    FROM (SELECT DISTINCT user_id FROM events WHERE name = 'purchase' AND user_id <= 60) u
+    ORDER BY u.user_id

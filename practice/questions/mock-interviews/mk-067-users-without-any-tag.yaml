@@ -1,0 +1,25 @@
+id: mk-067
+title: "Users without any tag"
+topic: mock-interviews
+tags: ["arrays", "null", "group-by"]
+difficulty: easy
+dataset: events
+prompt: |
+  Lena: "Marketing wants to tag everyone who has no tag yet." A user has **no tag** when `tags` is NULL (never set) **or** an empty array.
+  Return one row per `plan` with `plan`, `untagged_users` and `users` (all users of that plan), ordered by `plan`.
+solution_sql: |
+  SELECT plan,
+         count(*) FILTER (WHERE tags IS NULL OR cardinality(tags) = 0) AS untagged_users,
+         count(*) AS users
+  FROM users
+  GROUP BY plan
+  ORDER BY plan
+compare: {order_matters: true}
+hints:
+  - "NULL and an empty array are two different things - you need to handle both."
+  - "cardinality(tags) is 0 for an empty array and NULL for a NULL array."
+  - "FILTER (WHERE ...) lets you count a subset next to the total in one pass."
+trap: |
+  Testing only `tags = '{}'` finds the empty arrays and silently misses the NULL ones: 80 untagged users instead of the real 152 (72 users have tags NULL).
+followup: |
+  "Users that carry the tag 'beta' in any capitalisation?" Arrays are case-sensitive: 'Beta' and 'beta' both exist - unnest and lower(), or compare with lower(tags::text) carefully.

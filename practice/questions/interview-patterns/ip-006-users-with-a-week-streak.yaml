@@ -1,0 +1,34 @@
+id: ip-006
+title: How many users ever had a 7-day streak
+topic: interview-patterns
+tags: [gaps-and-islands, streak, count-distinct]
+difficulty: medium
+dataset: events
+prompt: |
+  Marketing plans a "7-day streak" badge. A user is **active on a day** if they have at least one event on that calendar day **in UTC**; a **streak** is a run of consecutive active days. How many **users** have had at least one streak of **7 days or more** at any time?
+
+  Return one row with one column `users_with_badge`.
+solution_sql: |
+  WITH d AS (
+    SELECT DISTINCT user_id, (ts AT TIME ZONE 'UTC')::date AS day FROM events),
+  i AS (
+    SELECT user_id, day - (row_number() OVER (PARTITION BY user_id ORDER BY day))::int AS island FROM d),
+  s AS (
+    SELECT user_id, island, count(*) AS days FROM i GROUP BY user_id, island)
+  SELECT count(DISTINCT user_id) AS users_with_badge
+  FROM s
+  WHERE days >= 7
+compare: {order_matters: false}
+hints:
+  - "First find the streaks (one row per user and run), then keep the long ones."
+  - "A user can have several long streaks. What are you counting: runs or people?"
+trap: |
+  Counting rows of the filtered streaks (`count(*)`) counts RUNS, not users: many users have several streaks of 7+ days, so you get 388 instead of the 162 users who earned the badge. A second tempting shortcut, "users with at least 7 active days" (no consecutiveness check), gives 246. The question is about people; make the grain explicit with `count(DISTINCT user_id)`.
+followup: |
+  "How would you find users whose streak is STILL running on 2024-04-30?" (Keep the island whose last day is that date.) "Can you answer it without islands?" (Yes: with distinct days, `count(*) OVER (PARTITION BY user_id ORDER BY day RANGE BETWEEN CURRENT ROW AND INTERVAL '6 days' FOLLOWING) = 7` marks a day that starts a 7-day run.)
+alternatives:
+  - |
+    SELECT count(DISTINCT user_id) AS users_with_badge
+    FROM (SELECT user_id, count(*) OVER (PARTITION BY user_id ORDER BY day RANGE BETWEEN CURRENT ROW AND INTERVAL '6 days' FOLLOWING) AS n
+          FROM (SELECT DISTINCT user_id, (ts AT TIME ZONE 'UTC')::date AS day FROM events) d) t
+    WHERE n = 7

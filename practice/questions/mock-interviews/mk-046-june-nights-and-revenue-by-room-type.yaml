@@ -1,0 +1,29 @@
+id: mk-046
+title: "June nights and revenue by room type"
+topic: mock-interviews
+tags: ["group-by", "dates", "date-arithmetic"]
+difficulty: easy
+dataset: hotel
+prompt: |
+  Elena: "How much did June bring in?" Consider the **confirmed** bookings whose `check_in` is in June 2024 (1 to 30 June). A booking earns `nightly_rate` for every night of the stay
+  (remember: the night of `check_out` is not a night of the stay).
+  Return `room_type`, `nights` (total nights) and `revenue` (nights times `nightly_rate`, summed), one row per room type, ordered by `room_type`.
+solution_sql: |
+  SELECT r.type AS room_type,
+         sum(b.check_out - b.check_in) AS nights,
+         sum((b.check_out - b.check_in) * b.nightly_rate) AS revenue
+  FROM bookings b
+  JOIN rooms r ON r.id = b.room_id
+  WHERE b.status = 'confirmed'
+    AND b.check_in >= '2024-06-01' AND b.check_in < '2024-07-01'
+  GROUP BY r.type
+  ORDER BY r.type
+compare: {order_matters: true}
+hints:
+  - "Subtracting two dates gives the number of days between them."
+  - "How many nights does a guest who arrives on the 3rd and leaves on the 5th sleep?"
+  - "Only confirmed bookings earn money."
+trap: |
+  Counting `check_out - check_in + 1` treats check_out like an inclusive last night: every booking gets one night too many (June: double rooms 40,220.00 instead of 31,505.00 revenue).
+followup: |
+  "What if a stay starts in June and ends in July - how many of its nights belong to June?" least(check_out, '2024-07-01') - greatest(check_in, '2024-06-01'), floored at 0.

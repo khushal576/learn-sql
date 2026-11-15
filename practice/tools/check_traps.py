@@ -8,6 +8,7 @@ status is not "new" is skipped (and every question it tests is reset to "new" af
     python3 tools/check_traps.py                 # all questions
     python3 tools/check_traps.py ag-003 wf-019   # only these
     TOOLBOX_URL=http://localhost:8000 python3 tools/check_traps.py
+Mock-interview questions (questions/mock-interviews/) are tested the same way: the checker starts the set, checks, resets, and discards its test run.
 Also runs the authoring validator (GET /validate): every reference answer must run, return rows, be deterministic.
 """
 import json, os, sys, urllib.request
@@ -33,12 +34,20 @@ def main(only):
     for f in sorted(Path(__file__).parent.glob("traps*.yaml")):      # traps.yaml + one traps_<batch>.yaml per authoring batch
         traps.update(yaml.safe_load(f.read_text()) or {})
     known = {q["id"]: q for q in call("questions")["questions"]}
+    mock_of = {}                                    # mock questions are not in /questions: they live in sets (need a running clock to Check)
+    for q in call("mocks/questions")["questions"]:
+        known[q["id"]] = q; mock_of[q["id"]] = q["set_id"]
+    in_progress = {s["id"] for s in call("mocks")["sets"] if s["status"] == "in_progress"}
     problems = 0
     v = call("validate")
     for q in v["questions"]:
         if not q["ok"]:
             problems += 1
             print(f"VALIDATE  {q['id']}: {q['problems']}")
+    for m in v.get("mocks", []):
+        if not m["ok"]:
+            problems += 1
+            print(f"VALIDATE  mock set {m['id']}: {m['problems']}")
     print(f"validate: {'all reference answers OK' if v['ok'] else 'PROBLEMS above'}  ({len(v['questions'])} questions)")
     missing = sorted(set(known) - set(traps))
     if missing and not only:
@@ -48,12 +57,19 @@ def main(only):
             continue
         if qid not in known:
             print(f"{qid}: not found in the tool (stale entry?)"); problems += 1; continue
-        if known[qid]["status"] != "new":
+        if qid in mock_of and mock_of[qid] in in_progress:
+            print(f"{qid}: skipped (its mock interview is running)"); continue
+        if qid not in mock_of and known[qid]["status"] != "new":
             print(f"{qid}: skipped (you have progress on it)"); continue
+        run_id = None
         try:
+            if qid in mock_of:                       # start the set's clock for the test, throw the run away afterwards
+                run_id = call(f"mocks/{mock_of[qid]}/start", post=True)["run"]["id"]
             w = call("check", {"id": qid, "sql": t["wrong"]}); r = call("check", {"id": qid, "sql": t["right"]})
         finally:
             call(f"questions/{qid}/reset", post=True)
+            if run_id is not None:
+                call(f"mocks/runs/{run_id}/discard", post=True)
         w_ok, r_ok = w.get("correct") is False, r.get("correct") is True
         if not (w_ok and r_ok):
             problems += 1

@@ -1,0 +1,33 @@
+id: mk-015
+title: Outside help on projects
+topic: mock-interviews
+tags: [conditional-aggregation, rank, integer-division, join]
+difficulty: hard
+dataset: hr
+prompt: |
+  A project is owned by a department, but people from other departments are assigned to it too. Management wants to know how dependent each project is on outsiders. Only count assignments of people who were **already employed when the project started** (`hire_date <= start_date`).
+
+  For every project return `project`, `owner_dept` (name), `team_size` (people counted), `outside_staff` (those from another department than the owner), `outside_hours_pct` (the percentage 0-100 of the project's counted hours worked by outsiders, rounded to 2 decimals) and `pct_rank` (`rank()` of the projects by `outside_hours_pct`, highest first, ties share the rank). Order by `pct_rank`, then project `id`.
+solution_sql: |
+  WITH w AS (
+    SELECT p.id AS project_id, p.name AS project, od.name AS owner_dept,
+           count(*) AS team_size,
+           count(*) FILTER (WHERE e.dept_id <> p.dept_id) AS outside_staff,
+           sum(a.hours) AS hours,
+           sum(a.hours) FILTER (WHERE e.dept_id <> p.dept_id) AS outside_hours
+    FROM projects p
+    JOIN departments od ON od.id = p.dept_id
+    JOIN project_assignments a ON a.project_id = p.id
+    JOIN employees e ON e.id = a.emp_id
+    WHERE e.hire_date <= p.start_date
+    GROUP BY p.id, p.name, od.name),
+  x AS (
+    SELECT *, round(100.0 * coalesce(outside_hours, 0) / hours, 2) AS outside_hours_pct FROM w)
+  SELECT project, owner_dept, team_size, outside_staff, outside_hours_pct,
+         rank() OVER (ORDER BY outside_hours_pct DESC) AS pct_rank
+  FROM x
+  ORDER BY pct_rank, project_id
+compare: {order_matters: true}
+hints: ['Two aggregates over the same rows: all hours, and hours `FILTER (WHERE dept differs)`.', Think about the numeric type of a sum of integers divided by another sum of integers.]
+trap: '`100 * sum(outside) / sum(all)` with integer hours is an **integer division** : the percentage is truncated (96, 95, 93 ...). Two projects (Ember 96.30 and Lumen 96.52) then both show 96.00 and share rank 1 instead of ranks 2 and 1. Multiply by `100.0` (or cast to numeric) so the division is exact.'
+followup: '"Why compare departments by id and not by name?" (Names are not guaranteed unique; the key is.) "How would you also show the biggest outside contributor per project?" (A window `row_number()` per project ordered by hours of outsiders.)'

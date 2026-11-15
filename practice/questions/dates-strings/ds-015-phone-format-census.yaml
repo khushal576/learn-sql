@@ -1,0 +1,43 @@
+id: ds-015
+title: Phone format census
+topic: dates-strings
+tags: [regexp, anchors, case-when, "null"]
+difficulty: hard
+dataset: events
+prompt: |
+  Data quality wants to know how many users store their phone in each format. Classify **every user** into exactly one `format`:
+
+  - `india`: starts with `+91`, e.g. `+91 98765 00007`
+  - `us_plus1`: starts with `+1 `, e.g. `+1 555 365 9595`
+  - `parens`: `(555) 206-5838`
+  - `dots`: `555.259.3757`
+  - `digits10`: exactly ten digits, `5553121676`
+  - `spaces`: three digits, space, three digits, space, four digits and **nothing else**, `555 418 7514`
+  - `missing`: no phone at all (NULL)
+
+  Return `format` and `users`, ordered by `users` descending, then `format`.
+solution_sql: |
+  SELECT CASE
+           WHEN phone IS NULL THEN 'missing'
+           WHEN phone ~ '^\+91' THEN 'india'
+           WHEN phone ~ '^\+1 ' THEN 'us_plus1'
+           WHEN phone ~ '^\(\d{3}\) \d{3}-\d{4}$' THEN 'parens'
+           WHEN phone ~ '^\d{3}\.\d{3}\.\d{4}$' THEN 'dots'
+           WHEN phone ~ '^\d{10}$' THEN 'digits10'
+           WHEN phone ~ '^\d{3} \d{3} \d{4}$' THEN 'spaces'
+         END AS format,
+         count(*) AS users
+  FROM users
+  GROUP BY 1
+  ORDER BY users DESC, format
+compare: {order_matters: true}
+hints:
+  - "A regex without `^` and `$` matches anywhere inside the text."
+  - "Where in the CASE does a pattern that is too general get its chance to steal rows?"
+trap: |
+  An unanchored pattern such as `phone ~ '\d{3} \d{3} \d{4}'` also matches **inside** `+1 555 365 9595`, so when the `spaces` test comes before `us_plus1` it steals those users: `spaces` shows 228 instead of 114 and `us_plus1` 0. Anchor patterns with `^` and `$` and order the CASE from the most specific test to the most general. (Also, `phone IS NULL` must be a branch of its own: NULL never matches a regex.)
+followup: |
+  "What does `~` do on a NULL phone?" (It returns NULL, not false, so the row falls through to `ELSE`; a CASE without an explicit NULL branch labels the 114 missing phones as NULL/other.)
+alternatives:
+  - |
+    SELECT CASE WHEN phone IS NULL THEN 'missing' WHEN left(phone, 3) = '+91' THEN 'india' WHEN left(phone, 3) = '+1 ' THEN 'us_plus1' WHEN left(phone, 1) = '(' THEN 'parens' WHEN phone ~ '^\d{3}\.' THEN 'dots' WHEN phone ~ '^\d+$' THEN 'digits10' ELSE 'spaces' END AS format, count(*) AS users FROM users GROUP BY 1 ORDER BY users DESC, format

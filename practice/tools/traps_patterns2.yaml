@@ -1,0 +1,218 @@
+ip-016:
+  wrong: |
+    SELECT name AS step, count(*) AS users,
+           round(100.0 * count(*) / lag(count(*)) OVER (ORDER BY count(*) DESC), 1) AS pct_of_previous_step
+    FROM events WHERE name IN ('signup','activated','purchase') GROUP BY name ORDER BY users DESC
+  right: |
+    SELECT step, users, round(100.0 * users / nullif(prev, 0), 1) AS pct_of_previous_step FROM (
+      SELECT step, users, lag(users) OVER (ORDER BY users DESC) AS prev FROM (
+        SELECT e.name AS step, count(DISTINCT e.user_id) AS users FROM events e
+        WHERE e.name IN ('signup','activated','purchase') GROUP BY e.name) a) b
+    ORDER BY users DESC
+ip-017:
+  wrong: |
+    SELECT u.id AS user_id, u.plan, count(*) AS purchases
+    FROM users u JOIN events p ON p.user_id = u.id AND p.name = 'purchase'
+    WHERE p.name <> 'activated'
+    GROUP BY u.id, u.plan ORDER BY u.id
+  right: |
+    SELECT u.id AS user_id, u.plan, count(p.id) AS purchases
+    FROM users u
+    JOIN events p ON p.user_id = u.id AND p.name = 'purchase'
+    LEFT JOIN events a ON a.user_id = u.id AND a.name = 'activated'
+    WHERE a.id IS NULL
+    GROUP BY u.id, u.plan ORDER BY u.id
+ip-018:
+  wrong: |
+    SELECT a.room_id, a.id AS booking_a, b.id AS booking_b
+    FROM bookings a JOIN bookings b ON b.room_id = a.room_id AND a.id < b.id
+                                   AND a.check_in <= b.check_out AND b.check_in <= a.check_out
+    WHERE a.status = 'confirmed' AND b.status = 'confirmed'
+    ORDER BY 1, 2, 3
+  right: |
+    SELECT a.room_id, a.id AS booking_a, b.id AS booking_b
+    FROM bookings a, bookings b
+    WHERE a.room_id = b.room_id AND a.id < b.id AND a.status = 'confirmed' AND b.status = 'confirmed'
+      AND daterange(a.check_in, a.check_out) && daterange(b.check_in, b.check_out)
+    ORDER BY 1, 2, 3
+ip-019:
+  wrong: |
+    SELECT r.number AS room_number, r.type AS room_type, count(*) AS conflicting_pairs
+    FROM bookings a JOIN bookings b ON b.room_id = a.room_id AND a.id <> b.id
+                                   AND a.check_in < b.check_out AND b.check_in < a.check_out
+    JOIN rooms r ON r.id = a.room_id
+    WHERE a.status = 'confirmed' AND b.status = 'confirmed'
+    GROUP BY r.number, r.type ORDER BY conflicting_pairs DESC, r.number
+  right: |
+    SELECT r.number AS room_number, r.type AS room_type, count(*) AS conflicting_pairs
+    FROM rooms r JOIN LATERAL (
+      SELECT b.id FROM bookings a, bookings b
+      WHERE a.room_id = r.id AND b.room_id = r.id AND a.id < b.id AND a.status = 'confirmed' AND b.status = 'confirmed'
+        AND a.check_in < b.check_out AND b.check_in < a.check_out
+    ) x ON true
+    GROUP BY r.number, r.type ORDER BY 3 DESC, 1
+ip-020:
+  wrong: |
+    SELECT r.id AS room_id, r.number AS room_number, r.type AS room_type FROM rooms r
+    WHERE NOT EXISTS (SELECT 1 FROM bookings b WHERE b.room_id = r.id AND b.status = 'confirmed'
+                      AND b.check_in <= DATE '2024-03-13' AND b.check_out >= DATE '2024-03-06')
+      AND NOT EXISTS (SELECT 1 FROM maintenance m WHERE m.room_id = r.id
+                      AND m.start_date < DATE '2024-03-13' AND m.end_date >= DATE '2024-03-06')
+    ORDER BY r.id
+  right: |
+    SELECT r.id AS room_id, r.number AS room_number, r.type AS room_type
+    FROM rooms r
+    LEFT JOIN (
+      SELECT room_id FROM bookings WHERE status = 'confirmed' AND daterange(check_in, check_out) && daterange('2024-03-06', '2024-03-13')
+      UNION
+      SELECT room_id FROM maintenance WHERE daterange(start_date, end_date, '[]') && daterange('2024-03-06', '2024-03-13')
+    ) busy ON busy.room_id = r.id
+    WHERE busy.room_id IS NULL ORDER BY r.id
+ip-021:
+  wrong: |
+    SELECT p.user_id, (p.ts AT TIME ZONE 'UTC')::date AS first_purchase_day, NULL::date AS first_activated_day, NULL::int AS days_late
+    FROM (SELECT user_id, min(ts) AS ts FROM events WHERE name = 'purchase' GROUP BY user_id) p
+    WHERE NOT EXISTS (SELECT 1 FROM events a WHERE a.user_id = p.user_id AND a.name = 'activated' AND a.ts < p.ts)
+    ORDER BY 1
+  right: |
+    SELECT p.user_id, p.d AS first_purchase_day, a.d AS first_activated_day, a.d - p.d AS days_late
+    FROM (SELECT user_id, (min(ts) AT TIME ZONE 'UTC')::date AS d, min(ts) AS t FROM events WHERE name = 'purchase' GROUP BY user_id) p
+    JOIN (SELECT user_id, (min(ts) AT TIME ZONE 'UTC')::date AS d, min(ts) AS t FROM events WHERE name = 'activated' GROUP BY user_id) a USING (user_id)
+    WHERE a.t > p.t ORDER BY p.user_id
+ip-022:
+  wrong: |
+    SELECT date_trunc('week', u.signup_at AT TIME ZONE 'UTC')::date AS cohort_week, count(DISTINCT u.id) AS cohort_size,
+           count(e.id) AS week1_active,
+           round(100.0 * count(e.id) / count(DISTINCT u.id), 1) AS week1_pct
+    FROM users u LEFT JOIN events e ON e.user_id = u.id AND e.name <> 'signup'
+         AND date_trunc('week', e.ts AT TIME ZONE 'UTC')::date = date_trunc('week', u.signup_at AT TIME ZONE 'UTC')::date + 7
+    GROUP BY 1 ORDER BY 1
+  right: |
+    SELECT c.wk AS cohort_week, c.n AS cohort_size, count(DISTINCT e.user_id) AS week1_active,
+           round(100.0 * count(DISTINCT e.user_id) / c.n, 1) AS week1_pct
+    FROM (SELECT date_trunc('week', signup_at AT TIME ZONE 'UTC')::date AS wk, count(*) AS n FROM users GROUP BY 1) c
+    LEFT JOIN users u ON date_trunc('week', u.signup_at AT TIME ZONE 'UTC')::date = c.wk
+    LEFT JOIN events e ON e.user_id = u.id AND e.name <> 'signup'
+         AND e.ts >= (c.wk + 7)::timestamp AT TIME ZONE 'UTC' AND e.ts < (c.wk + 14)::timestamp AT TIME ZONE 'UTC'
+    GROUP BY c.wk, c.n ORDER BY c.wk
+ip-023:
+  wrong: |
+    SELECT b.id AS booking_id, m.id AS maintenance_id, b.room_id,
+           least(b.check_out, m.end_date) - greatest(b.check_in, m.start_date) AS overlap_nights
+    FROM bookings b JOIN maintenance m ON m.room_id = b.room_id AND m.start_date < b.check_out AND b.check_in < m.end_date
+    WHERE b.status = 'confirmed' ORDER BY 1, 2
+  right: |
+    SELECT b.id AS booking_id, m.id AS maintenance_id, b.room_id,
+           (SELECT count(*) FROM generate_series(b.check_in, b.check_out - 1, interval '1 day') d
+            WHERE d::date BETWEEN m.start_date AND m.end_date)::int AS overlap_nights
+    FROM bookings b JOIN maintenance m ON m.room_id = b.room_id AND daterange(b.check_in, b.check_out) && daterange(m.start_date, m.end_date, '[]')
+    WHERE b.status = 'confirmed' ORDER BY 1, 2
+ip-024:
+  wrong: |
+    WITH x AS (
+      SELECT d::date AS day, (SELECT count(*) FROM bookings b WHERE b.status = 'confirmed' AND d::date >= b.check_in AND d::date < b.check_out) AS occupied_rooms
+      FROM generate_series(DATE '2024-01-01', DATE '2024-12-31', interval '1 day') d
+    )
+    SELECT day, occupied_rooms FROM x WHERE occupied_rooms = (SELECT max(occupied_rooms) FROM x) ORDER BY day
+  right: |
+    WITH x AS (
+      SELECT d::date AS day, (SELECT count(DISTINCT room_id) FROM bookings b
+                              WHERE b.status = 'confirmed' AND d::date >= b.check_in AND d::date < b.check_out) AS occupied_rooms
+      FROM generate_series(DATE '2024-01-01', DATE '2024-12-31', interval '1 day') d
+    )
+    SELECT day, occupied_rooms FROM x WHERE occupied_rooms = (SELECT max(occupied_rooms) FROM x) ORDER BY day
+ip-025:
+  wrong: |
+    WITH b AS (
+      SELECT *, CASE WHEN check_in = lag(check_out) OVER (PARTITION BY room_id ORDER BY check_in, id) THEN 0 ELSE 1 END AS new_chain
+      FROM bookings
+    ), g AS (SELECT *, sum(new_chain) OVER (PARTITION BY room_id ORDER BY check_in, id) AS chain_no FROM b)
+    SELECT room_id, count(*) AS bookings_in_chain, min(check_in) AS chain_start, max(check_out) AS chain_end
+    FROM g GROUP BY room_id, chain_no HAVING count(*) >= 8 ORDER BY room_id, chain_start
+  right: |
+    WITH r AS (
+      SELECT room_id, id, check_in, check_out,
+             check_in - lag(check_out) OVER (PARTITION BY room_id ORDER BY check_in, id) AS gap
+      FROM bookings WHERE status = 'confirmed'
+    ), s AS (
+      SELECT *, count(*) FILTER (WHERE gap IS DISTINCT FROM 0) OVER (PARTITION BY room_id ORDER BY check_in, id) AS grp FROM r
+    )
+    SELECT room_id, count(*) AS bookings_in_chain, min(check_in) AS chain_start, max(check_out) AS chain_end
+    FROM s GROUP BY room_id, grp HAVING count(*) >= 8 ORDER BY 1, 3
+ip-026:
+  wrong: |
+    WITH g AS (
+      SELECT room_id, check_out AS gap_start, lead(check_in) OVER (PARTITION BY room_id ORDER BY check_in, id) AS gap_end FROM bookings
+    )
+    SELECT room_id, gap_start, gap_end, gap_end - gap_start AS idle_nights FROM g WHERE gap_end IS NOT NULL
+    ORDER BY idle_nights DESC, room_id LIMIT 5
+  right: |
+    SELECT a.room_id, a.check_out AS gap_start, n.check_in AS gap_end, n.check_in - a.check_out AS idle_nights
+    FROM bookings a
+    JOIN LATERAL (SELECT min(check_in) AS check_in FROM bookings x
+                  WHERE x.room_id = a.room_id AND x.status = 'confirmed' AND x.check_in >= a.check_out) n ON n.check_in IS NOT NULL
+    WHERE a.status = 'confirmed' AND NOT EXISTS (SELECT 1 FROM bookings y WHERE y.room_id = a.room_id AND y.status = 'confirmed' AND y.check_in < n.check_in AND y.check_out > a.check_out)
+    ORDER BY idle_nights DESC, room_id LIMIT 5
+ip-027:
+  wrong: |
+    WITH b AS (
+      SELECT room_id, id, check_in, check_out, lag(check_out) OVER (PARTITION BY room_id ORDER BY check_in, id) AS prev_out
+      FROM bookings WHERE status = 'confirmed' AND room_id IN (5, 10)
+    ), f AS (SELECT *, CASE WHEN prev_out IS NULL OR check_in > prev_out THEN 1 ELSE 0 END AS np FROM b),
+    g AS (SELECT *, sum(np) OVER (PARTITION BY room_id ORDER BY check_in, id) AS pn FROM f)
+    SELECT room_id, min(check_in) AS period_start, max(check_out) AS period_end, count(*) AS bookings
+    FROM g GROUP BY room_id, pn ORDER BY room_id, period_start
+  right: |
+    WITH s AS (SELECT room_id, check_in, check_out FROM bookings WHERE status = 'confirmed' AND room_id IN (5, 10))
+    SELECT room_id, min(check_in) AS period_start, max(check_out) AS period_end, count(*) AS bookings
+    FROM (SELECT *, sum(brk) OVER (PARTITION BY room_id ORDER BY check_in, check_out DESC) AS g
+          FROM (SELECT *, CASE WHEN check_in <= max(check_out) OVER (PARTITION BY room_id ORDER BY check_in, check_out DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) THEN 0 ELSE 1 END AS brk FROM s) q) z
+    GROUP BY room_id, g ORDER BY 1, 2
+ip-028:
+  wrong: |
+    SELECT b.id AS booking_id, b.check_out - b.check_in AS nights, count(rc.id) AS priced_nights,
+           coalesce(sum(rc.nightly_rate), 0) AS rate_total, b.check_out - b.check_in - count(rc.id) AS unpriced_nights
+    FROM bookings b JOIN rooms r ON r.id = b.room_id AND r.type = 'suite'
+    CROSS JOIN LATERAL generate_series(b.check_in, b.check_out - 1, interval '1 day') AS n(night)
+    JOIN rate_cards rc ON rc.room_type = r.type AND n.night::date BETWEEN rc.valid_from AND rc.valid_to
+    WHERE b.status = 'confirmed' AND b.check_in BETWEEN DATE '2024-08-29' AND DATE '2024-09-12'
+    GROUP BY b.id, b.check_in, b.check_out ORDER BY b.id
+  right: |
+    SELECT b.id AS booking_id, b.check_out - b.check_in AS nights,
+           (SELECT count(*) FROM generate_series(b.check_in, b.check_out - 1, interval '1 day') d
+             JOIN rate_cards rc ON rc.room_type = r.type AND d::date BETWEEN rc.valid_from AND rc.valid_to)::int AS priced_nights,
+           coalesce((SELECT sum(rc.nightly_rate) FROM generate_series(b.check_in, b.check_out - 1, interval '1 day') d
+             JOIN rate_cards rc ON rc.room_type = r.type AND d::date BETWEEN rc.valid_from AND rc.valid_to), 0) AS rate_total,
+           (SELECT count(*) FROM generate_series(b.check_in, b.check_out - 1, interval '1 day') d
+             WHERE NOT EXISTS (SELECT 1 FROM rate_cards rc WHERE rc.room_type = r.type AND d::date BETWEEN rc.valid_from AND rc.valid_to))::int AS unpriced_nights
+    FROM bookings b JOIN rooms r ON r.id = b.room_id
+    WHERE r.type = 'suite' AND b.status = 'confirmed' AND b.check_in BETWEEN DATE '2024-08-29' AND DATE '2024-09-12'
+    ORDER BY b.id
+ip-029:
+  wrong: |
+    SELECT u.plan, count(*) AS buyers,
+           round((percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM e.ts - u.signup_at) / 86400))::numeric, 2) AS median_days,
+           round((percentile_cont(0.9) WITHIN GROUP (ORDER BY extract(epoch FROM e.ts - u.signup_at) / 86400))::numeric, 2) AS p90_days
+    FROM events e JOIN users u ON u.id = e.user_id WHERE e.name = 'purchase' GROUP BY u.plan ORDER BY u.plan
+  right: |
+    SELECT plan, count(*) AS buyers,
+           round((percentile_cont(0.5) WITHIN GROUP (ORDER BY d))::numeric, 2) AS median_days,
+           round((percentile_cont(0.9) WITHIN GROUP (ORDER BY d))::numeric, 2) AS p90_days
+    FROM (
+      SELECT DISTINCT ON (e.user_id) u.plan, extract(epoch FROM e.ts - u.signup_at) / 86400 AS d
+      FROM events e JOIN users u ON u.id = e.user_id WHERE e.name = 'purchase' ORDER BY e.user_id, e.ts
+    ) t GROUP BY plan ORDER BY plan
+ip-030:
+  wrong: |
+    WITH daily AS (
+      SELECT (ts AT TIME ZONE 'UTC')::date AS d, count(DISTINCT user_id) AS dau FROM events GROUP BY 1
+    )
+    SELECT r.day, sum(daily.dau) AS active_users_7d
+    FROM (VALUES (DATE '2024-03-01'), (DATE '2024-03-15'), (DATE '2024-04-01'), (DATE '2024-04-15'), (DATE '2024-04-30')) AS r(day)
+    JOIN daily ON daily.d BETWEEN r.day - 6 AND r.day
+    GROUP BY r.day ORDER BY r.day
+  right: |
+    WITH d(user_id, day) AS (SELECT DISTINCT user_id, (ts AT TIME ZONE 'UTC')::date FROM events)
+    SELECT r.day, (SELECT count(DISTINCT d.user_id) FROM d WHERE d.day BETWEEN r.day - 6 AND r.day)::int AS active_users_7d
+    FROM (VALUES (DATE '2024-03-01'), (DATE '2024-03-15'), (DATE '2024-04-01'), (DATE '2024-04-15'), (DATE '2024-04-30')) AS r(day)
+    ORDER BY r.day

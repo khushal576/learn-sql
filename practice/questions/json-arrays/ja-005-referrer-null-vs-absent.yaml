@@ -1,0 +1,34 @@
+id: ja-005
+title: Referrer sent as null, or not sent at all?
+topic: json-arrays
+tags: [jsonb, json-null, key-exists]
+difficulty: medium
+dataset: events
+prompt: |
+  The tracking SDK was updated and engineers need to know **which page views send the key `referrer` with an explicit `null` and which do not send the key at all**.
+
+  For `page_view` events, return `referrer_state` and `events`, ordered by `referrer_state`, where the state is:
+
+  - `explicit_null` - the key `referrer` exists in `props` and its value is JSON `null`
+  - `absent` - the key does not exist (also when `props` is NULL)
+  - `value` - the key exists with a real value
+solution_sql: |
+  SELECT CASE WHEN props ? 'referrer' AND jsonb_typeof(props -> 'referrer') = 'null' THEN 'explicit_null'
+              WHEN props ? 'referrer' THEN 'value'
+              ELSE 'absent' END AS referrer_state,
+         count(*) AS events
+  FROM events
+  WHERE name = 'page_view'
+  GROUP BY 1
+  ORDER BY 1
+compare: {order_matters: true}
+hints:
+  - "`props ->> 'referrer'` gives you NULL in more than one situation. Which operator only asks whether a key exists?"
+trap: |
+  `props ->> 'referrer' IS NULL` is true for a JSON null **and** for a missing key (and for a NULL props): it lumps the 2 495 explicit nulls together with 10 082 page views that never sent the key, and the "explicit_null" bucket never appears. The existence operator `?` separates "key present" from "value null".
+followup: |
+  "Which index could serve `props ? 'referrer'`?" (A GIN index on `props` - `jsonb_ops` supports `?`, `?|`, `?&` and `@>`; `jsonb_path_ops` is smaller but supports only `@>` and jsonpath.)
+alternatives:
+  - |
+    SELECT CASE WHEN jsonb_path_exists(props, '$.referrer ? (@ == null)') THEN 'explicit_null' WHEN jsonb_path_exists(props, '$.referrer') THEN 'value' ELSE 'absent' END AS referrer_state, count(*) AS events
+    FROM events WHERE name = 'page_view' GROUP BY 1 ORDER BY 1

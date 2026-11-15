@@ -1,0 +1,25 @@
+id: ja-003
+title: Users with no tags at all
+topic: json-arrays
+tags: [arrays, "null", cardinality, empty-array]
+difficulty: easy
+dataset: events
+prompt: |
+  Marketing wants to tag the users nobody has classified yet. A user counts as **untagged** when the `tags` column is NULL (never set) **or** an empty array (tags were cleared).
+
+  Return the `id` of every untagged user, ordered by `id`.
+solution_sql: |
+  SELECT id
+  FROM users
+  WHERE tags IS NULL OR cardinality(tags) = 0
+  ORDER BY id
+compare: {order_matters: true}
+hints:
+  - "NULL and `{}` are two different values. Check how each function treats them."
+trap: |
+  `array_length(tags, 1) = 0` returns NOTHING: `array_length` of an empty array is NULL (not 0), and of a NULL array it is NULL too, so the comparison is never true. `tags = '{}'` finds the 80 empty arrays but misses the 72 NULLs. `cardinality()` returns 0 for an empty array, so combine it with the NULL test.
+followup: |
+  "Same question, but with `COALESCE`." (`coalesce(cardinality(tags), 0) = 0` - one expression for both cases.)
+alternatives:
+  - |
+    SELECT id FROM users WHERE coalesce(cardinality(tags), 0) = 0 ORDER BY id

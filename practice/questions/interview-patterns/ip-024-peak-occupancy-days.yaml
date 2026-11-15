@@ -1,0 +1,41 @@
+id: ip-024
+title: Peak occupancy day
+topic: interview-patterns
+tags: [concurrency, generate-series, range-join]
+difficulty: hard
+dataset: hotel
+prompt: |
+  The GM wants to know when the hotel was fullest in 2024. A room is **occupied** on a date when a **confirmed** booking has `check_in <= date < check_out`
+  (the checkout morning does not count); a room covered by two overlapping bookings is still just one occupied room.
+  Consider only the dates 2024-01-01 .. 2024-12-31. Return `day` and `occupied_rooms` for **every** date that reaches the maximum number of occupied rooms
+  (several dates may tie), ordered by `day`.
+solution_sql: |
+  WITH days AS (
+    SELECT d::date AS day FROM generate_series(DATE '2024-01-01', DATE '2024-12-31', interval '1 day') d
+  ), occ AS (
+    SELECT days.day, count(DISTINCT b.room_id) AS occupied_rooms
+    FROM days
+    JOIN bookings b ON b.status = 'confirmed' AND days.day >= b.check_in AND days.day < b.check_out
+    GROUP BY days.day
+  )
+  SELECT day, occupied_rooms
+  FROM occ
+  WHERE occupied_rooms = (SELECT max(occupied_rooms) FROM occ)
+  ORDER BY day
+compare: {order_matters: true}
+hints:
+  - "Build a calendar of dates and join each date to the bookings that cover it (a range join)."
+  - "Count rooms, not bookings. And return ALL dates that tie for the maximum, not just one."
+trap: |
+  `count(*)` counts bookings, so the 30 double-booked rooms count twice. 2024-01-30 then looks like a unique peak with 29 "rooms" (it has a double-booked room), while the true maximum is 28 occupied rooms
+  on two dates (2024-01-30 and 2024-11-17).
+followup: |
+  "Do it without a calendar table." Sweep line: +1 at each check_in, -1 at each check_out, running sum ordered by date (but beware double-bookings counted per booking again).
+alternatives:
+  - |
+    WITH x AS (
+      SELECT d::date AS day, (SELECT count(DISTINCT room_id) FROM bookings b
+                              WHERE b.status = 'confirmed' AND d::date >= b.check_in AND d::date < b.check_out) AS occupied_rooms
+      FROM generate_series(DATE '2024-01-01', DATE '2024-12-31', interval '1 day') d
+    )
+    SELECT day, occupied_rooms FROM x WHERE occupied_rooms = (SELECT max(occupied_rooms) FROM x) ORDER BY day

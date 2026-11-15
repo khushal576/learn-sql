@@ -1,0 +1,29 @@
+id: rc-017
+title: Gross weight of every carton
+topic: recursive-cte
+tags:
+- recursive
+- tree
+- rollup
+difficulty: hard
+dataset: logistics
+prompt: |
+  Each **carton** (`kind = 'carton'`) is weighed with everything packed inside it, including smaller cartons nested in it and their contents. `weight_kg` is a unit's own weight only.
+
+  Return `carton_id` and `gross_kg` = the carton's own weight plus all its contents at any depth, ordered by `carton_id`.
+solution_sql: |
+  WITH RECURSIVE tree AS (
+    SELECT id AS carton_id, id, weight_kg FROM package_units WHERE kind = 'carton'
+    UNION ALL
+    SELECT t.carton_id, u.id, u.weight_kg FROM package_units u JOIN tree t ON u.parent_id = t.id
+  )
+  SELECT carton_id, sum(weight_kg) AS gross_kg FROM tree GROUP BY carton_id ORDER BY carton_id
+compare:
+  order_matters: true
+hints:
+- Start a separate recursion from EVERY carton (not only from the pallets) and keep the starting id.
+- The anchor row carries the carton's own weight.
+trap: |
+  Adding the carton's weight to its direct children is right for a carton that only holds items, but wrong for the 24 cartons that hold other cartons: the contents of the inner cartons are lost. Starting the recursion at every carton and summing all descendants fixes it.
+followup: |
+  "And the same for the cartons' item count only?" (Filter kind = 'item' in the final SUM/count, keep the recursion unchanged.)

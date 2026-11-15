@@ -1,0 +1,40 @@
+id: ip-010
+title: Device change runs
+topic: interview-patterns
+tags: [run-length, change-detection, lag, "null", is-distinct-from]
+difficulty: medium
+dataset: events
+prompt: |
+  Security wants to spot users who switch devices often. For **users 1 to 10**, compress each user's event stream (ordered by `ts`, then `id`) into **runs**: a run is a maximal sequence of consecutive events with the **same device**. An event whose `device` is NULL (unknown) counts as its own value: a run of unknown devices is a run too, and a change from or to NULL is a change.
+
+  Return `user_id`, `run_no` (1, 2, 3, ... per user), `device`, `first_event_at` and `last_event_at` (timestamps **in UTC**, without time zone) and `events` (the number of events in the run), ordered by `user_id`, `run_no`.
+solution_sql: |
+  WITH e AS (
+    SELECT user_id, id, ts, device,
+           CASE WHEN lag(id) OVER w IS NULL OR device IS DISTINCT FROM lag(device) OVER w THEN 1 ELSE 0 END AS changed
+    FROM events WHERE user_id <= 10
+    WINDOW w AS (PARTITION BY user_id ORDER BY ts, id)),
+  g AS (
+    SELECT *, sum(changed) OVER (PARTITION BY user_id ORDER BY ts, id) AS run_no FROM e)
+  SELECT user_id, run_no, device,
+         min(ts) AT TIME ZONE 'UTC' AS first_event_at,
+         max(ts) AT TIME ZONE 'UTC' AS last_event_at,
+         count(*) AS events
+  FROM g
+  GROUP BY user_id, run_no, device
+  ORDER BY user_id, run_no
+compare: {order_matters: true}
+hints:
+  - "Same island recipe: flag the rows that differ from the previous row, then a running sum of the flags numbers the runs."
+  - "`device <> lag(device)` is NULL (not true) whenever one side is NULL. Which comparison operator treats NULL like a value?"
+trap: |
+  `device <> lag(device)` never fires when either side is NULL, so a NULL device is silently glued to the run before it, and the run that follows NULL is glued to the run before the NULL. User 3 really has 5 runs but gets 3 and user 6 has 13 but gets 3 (28 runs in total instead of 52 for users 1-10). `IS DISTINCT FROM` is the null-safe "has changed".
+followup: |
+  "Why is `GROUP BY device` alone not a run-length encoding?" (It merges runs that are separated by another device: web, ios, web becomes two groups instead of three runs.) "Null-safe equality?" (`IS NOT DISTINCT FROM`.)
+alternatives:
+  - |
+    WITH e AS (SELECT user_id, id, ts, device, lag(device) OVER w AS pd, lag(id) OVER w AS pid
+               FROM events WHERE user_id <= 10 WINDOW w AS (PARTITION BY user_id ORDER BY ts, id)),
+    g AS (SELECT *, count(*) FILTER (WHERE pid IS NULL OR NOT (device IS NOT DISTINCT FROM pd)) OVER (PARTITION BY user_id ORDER BY ts, id) AS run_no FROM e)
+    SELECT user_id, run_no, device, min(ts) AT TIME ZONE 'UTC' AS first_event_at, max(ts) AT TIME ZONE 'UTC' AS last_event_at, count(*) AS events
+    FROM g GROUP BY user_id, run_no, device ORDER BY user_id, run_no

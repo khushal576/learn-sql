@@ -1,0 +1,43 @@
+id: ip-004
+title: Events per session and longest session
+topic: interview-patterns
+tags: [sessionization, lag, boundary, aggregation]
+difficulty: medium
+dataset: events
+prompt: |
+  UX research wants to know how "deep" the visits of users **1 to 20** are. Sessionize each user's events: the first event starts a session, and a new session starts whenever the gap to the user's previous event is **more than 30 minutes** (exactly 30:00 is still the same session). Equal timestamps are ordered by `id`; all times **in UTC** (the gaps do not depend on the zone, only the policy).
+
+  For every user return `user_id`, `sessions`, `avg_events_per_session` (events divided by sessions, **rounded to 2 decimals**) and `longest_session_minutes` (the largest difference between the last and the first event of a session, in minutes, **rounded to 1 decimal**; a one-event session lasts 0). Order by `user_id`.
+solution_sql: |
+  WITH g AS (
+    SELECT user_id, id, ts,
+           CASE WHEN lag(ts) OVER w IS NULL OR ts - lag(ts) OVER w > interval '30 minutes' THEN 1 ELSE 0 END AS starts
+    FROM events WHERE user_id <= 20
+    WINDOW w AS (PARTITION BY user_id ORDER BY ts, id)),
+  s AS (
+    SELECT *, sum(starts) OVER (PARTITION BY user_id ORDER BY ts, id) AS session_no FROM g),
+  per_session AS (
+    SELECT user_id, session_no, count(*) AS n, extract(epoch FROM max(ts) - min(ts)) / 60 AS minutes
+    FROM s GROUP BY user_id, session_no)
+  SELECT user_id,
+         count(*) AS sessions,
+         round(avg(n), 2) AS avg_events_per_session,
+         round(max(minutes), 1) AS longest_session_minutes
+  FROM per_session
+  GROUP BY user_id
+  ORDER BY user_id
+compare: {order_matters: true, decimals: 2}
+hints:
+  - "Two levels: first one row per (user, session) with its event count and duration, then aggregate those rows per user."
+  - "avg of the per-session counts = events / sessions, but only if each session is one row in the second level."
+trap: |
+  Using `gap >= interval '30 minutes'` ("a half hour of silence ends the session"). The data contains many gaps of exactly 30:00, so 8 of these 20 users get extra, shorter sessions (295 sessions in total instead of 245), which lowers the average size and shortens the longest session. A boundary in the definition ("more than") must be copied literally.
+followup: |
+  "Why aggregate twice instead of `avg(count(*))`?" (Aggregates cannot be nested; the per-session counts must exist as rows before they can be averaged.) "Median session length?" (Same per-session CTE, then `percentile_cont(0.5) WITHIN GROUP (ORDER BY minutes)`.)
+alternatives:
+  - |
+    WITH e AS (SELECT user_id, ts, ts - lag(ts) OVER (PARTITION BY user_id ORDER BY ts, id) AS gap FROM events WHERE user_id <= 20),
+    k AS (SELECT user_id, ts, count(*) FILTER (WHERE gap IS NULL OR gap > interval '30 minutes') OVER (PARTITION BY user_id ORDER BY ts ROWS UNBOUNDED PRECEDING) AS sn FROM e),
+    p AS (SELECT user_id, sn, count(*) AS n, extract(epoch FROM max(ts) - min(ts)) / 60 AS m FROM k GROUP BY 1, 2)
+    SELECT user_id, count(*) AS sessions, round(sum(n)::numeric / count(*), 2) AS avg_events_per_session, round(max(m)::numeric, 1) AS longest_session_minutes
+    FROM p GROUP BY user_id ORDER BY user_id

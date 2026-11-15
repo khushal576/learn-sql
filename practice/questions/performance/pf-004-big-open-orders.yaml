@@ -1,0 +1,28 @@
+id: pf-004
+title: Big open orders for the ops board
+topic: performance
+tags: [partial-index, status, skew]
+difficulty: medium
+dataset: perf
+prompt: |
+  Operations has a board of **open** orders (`status = 'open'`) worth more than **490**. Only 2 % of orders are open, and the table has a small *partial* index made exactly for that, yet the board query reads all 300 000 rows.
+
+  Return `id`, `customer_id`, `amount` of every open order with `amount > 490`, highest amount first, then `id`.
+  Check also looks at the query plan: the table must not be read sequentially.
+solution_sql: |
+  SELECT id, customer_id, amount FROM orders WHERE status = 'open' AND amount > 490 ORDER BY amount DESC, id
+check:
+  type: plan
+  must_use: ["Index Scan|Index Only Scan|Bitmap Index Scan|Bitmap Heap Scan"]
+  must_not_use: ["Seq Scan on orders"]
+  note: "the open orders must be reached through the (partial) index, not by scanning orders"
+compare: {order_matters: true}
+hints:
+  - "A partial index only helps when the planner can PROVE your query asks for rows inside it, i.e. the query contains the index's condition literally."
+  - "Say what you mean: the status you want is one value, spelled the way the data spells it."
+trap: |
+  "Everything not finished" is a tempting way to say open: `status NOT IN ('done','cancelled','returned')` returns the very same 115 rows today, but Postgres cannot prove that this implies `status = 'open'`, so the partial index is out and the whole table is scanned. `upper(status) = 'OPEN'` fails the same way. The predicate must contain `status = 'open'` as written in the index definition.
+followup: |
+  "A new status 'pending' appears. What happens to each version?" (The NOT IN version silently starts returning pending orders; the `= 'open'` version keeps meaning what it says. Plan stability and correctness agree here.)
+alternatives:
+  - "SELECT id, customer_id, amount FROM orders WHERE status IN ('open') AND amount >= 490.01 ORDER BY amount DESC, id"

@@ -1,0 +1,29 @@
+id: mk-068
+title: "Seven-day activation rate per signup week"
+topic: mock-interviews
+tags: ["left-join", "distinct", "dates", "percentage"]
+difficulty: medium
+dataset: events
+prompt: |
+  Lena: "Of the people who sign up in a week, how many activate within the first seven days?"
+  Every user has a `signup_at` (timestamptz). A user is **activated in time** if there is an `activated` event with `ts >= signup_at` and `ts < signup_at + 7 days`. Some users have two `activated` events - such a user still counts once.
+  Group users by the week of their signup (week starts on Monday, in UTC, as a date) and return `week_start`, `signups`, `activated_7d` (distinct users activated in time) and `activation_pct` (0-100, rounded to 2 decimals). Order by `week_start`.
+solution_sql: |
+  SELECT date_trunc('week', u.signup_at AT TIME ZONE 'UTC')::date AS week_start,
+         count(DISTINCT u.id) AS signups,
+         count(DISTINCT u.id) FILTER (WHERE e.id IS NOT NULL) AS activated_7d,
+         round(100.0 * count(DISTINCT u.id) FILTER (WHERE e.id IS NOT NULL) / count(DISTINCT u.id), 2) AS activation_pct
+  FROM users u
+  LEFT JOIN events e ON e.user_id = u.id AND e.name = 'activated'
+                    AND e.ts >= u.signup_at AND e.ts < u.signup_at + interval '7 days'
+  GROUP BY 1
+  ORDER BY 1
+compare: {order_matters: true}
+hints:
+  - "Start from users and LEFT JOIN the qualifying activated events, so users who never activated still count in the denominator."
+  - "A user with two matching events appears twice after the join: count distinct users."
+  - "date_trunc('week', ...) starts on Monday; convert the timestamptz to UTC first."
+trap: |
+  Counting joined rows (`count(e.id)`) counts the double-activated users twice and overstates the rate: the week of 2024-01-01 shows 34 activated users (60.71 %) instead of 32 (57.14 %).
+followup: |
+  "What if I want it per local signup week of each user's own time zone?" date_trunc('week', signup_at AT TIME ZONE tz) - the week boundaries then differ per user.

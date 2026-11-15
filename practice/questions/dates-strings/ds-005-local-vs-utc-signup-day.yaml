@@ -1,0 +1,27 @@
+id: ds-005
+title: Signups that land on another local day
+topic: dates-strings
+tags: [at-time-zone, filter, timestamptz]
+difficulty: medium
+dataset: events
+prompt: |
+  The lifecycle team sends a "welcome, you joined today" email on the **local calendar day** of each user, but the data warehouse stores days in **UTC**. How many users joined on a *different calendar date* locally than in UTC?
+
+  For every value of `users.tz` (the user's IANA time zone), return `tz` and `shifted_users` = the number of users whose local signup date (in `tz`) differs from their UTC signup date. **Every time zone must be listed**, also those where nobody is shifted. Order by `shifted_users` descending, then `tz`.
+solution_sql: |
+  SELECT tz,
+         count(*) FILTER (WHERE (signup_at AT TIME ZONE tz)::date <> (signup_at AT TIME ZONE 'UTC')::date) AS shifted_users
+  FROM users
+  GROUP BY tz
+  ORDER BY shifted_users DESC, tz
+compare: {order_matters: true}
+hints:
+  - "`ts AT TIME ZONE 'Asia/Tokyo'` turns a `timestamptz` into the local wall-clock `timestamp`; the zone can be a column."
+  - "Which clause removes rows, and which only decides what a count counts?"
+trap: |
+  Putting the date comparison in `WHERE` removes the users who are not shifted **before** grouping, so a time zone with zero shifted users vanishes: `Europe/London` (0 shifted, it is UTC+0 until 31 March and UTC+1 after, with no signup in the shifted window) is missing and you return 8 rows instead of 9. Use `count(*) FILTER (WHERE ...)` (or `sum(CASE ...)`) to keep every group.
+followup: |
+  "Why is Auckland the most shifted (55) and London the least?" (Auckland is UTC+13/+12, so signups after 11:00/12:00 UTC fall on the next local day; London is UTC+0/+1 so only a very late UTC signup could shift.)
+alternatives:
+  - |
+    SELECT tz, sum(CASE WHEN (signup_at AT TIME ZONE tz)::date <> (signup_at AT TIME ZONE 'UTC')::date THEN 1 ELSE 0 END) AS shifted_users FROM users GROUP BY tz ORDER BY shifted_users DESC, tz

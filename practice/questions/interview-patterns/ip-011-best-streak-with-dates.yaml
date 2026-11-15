@@ -1,0 +1,43 @@
+id: ip-011
+title: Best streak with its dates
+topic: interview-patterns
+tags: [gaps-and-islands, streak, ties, row-number]
+difficulty: hard
+dataset: events
+prompt: |
+  For the loyalty hall of fame, find for every user from **1 to 120** their **best streak**: the longest run of consecutive active days, where a user is **active on a day** if they have at least one event on that calendar day **in UTC**. Only users whose best streak is **at least 5 days** are listed. If a user has several streaks of the same maximal length, report only the **earliest** of them.
+
+  Return `user_id`, `streak_start` (first day), `streak_end` (last day), `streak_days`, ordered by `user_id`.
+solution_sql: |
+  WITH d AS (
+    SELECT DISTINCT user_id, (ts AT TIME ZONE 'UTC')::date AS day
+    FROM events WHERE user_id <= 120),
+  i AS (
+    SELECT user_id, day, day - (row_number() OVER (PARTITION BY user_id ORDER BY day))::int AS island FROM d),
+  s AS (
+    SELECT user_id, min(day) AS streak_start, max(day) AS streak_end, count(*) AS streak_days
+    FROM i GROUP BY user_id, island),
+  r AS (
+    SELECT *, row_number() OVER (PARTITION BY user_id ORDER BY streak_days DESC, streak_start) AS rn FROM s)
+  SELECT user_id, streak_start, streak_end, streak_days
+  FROM r
+  WHERE rn = 1 AND streak_days >= 5
+  ORDER BY user_id
+compare: {order_matters: true}
+hints:
+  - "Island per streak first (min/max day, count), then pick one row per user with a ranking window."
+  - "What does `rank() = 1` return when two streaks are equally long? And which window function always gives exactly one row?"
+trap: |
+  Keeping every streak whose length equals the user's maximum (`WHERE streak_days = max(streak_days) OVER (...)`, or `rank() = 1`) returns ALL tied streaks. Engaged users have runs of the same length again and again (user 9 has four streaks of 12 days), so the result has 72 rows for 32 users. The rule "earliest if tied" needs a total order: `ROW_NUMBER() ... ORDER BY streak_days DESC, streak_start`.
+followup: |
+  "When would you want the ties?" (A leaderboard where equal achievements share a rank: `rank()` or `dense_rank()`.) "Why is the tie-break column also needed in a TOP-1 `LIMIT`-style query?" (Without it the database may return any of the tied rows, and the result is not repeatable.)
+alternatives:
+  - |
+    WITH d AS (SELECT DISTINCT user_id, (ts AT TIME ZONE 'UTC')::date AS day FROM events WHERE user_id <= 120),
+    f AS (SELECT user_id, day, CASE WHEN day - lag(day) OVER (PARTITION BY user_id ORDER BY day) = 1 THEN 0 ELSE 1 END AS st FROM d),
+    g AS (SELECT user_id, day, sum(st) OVER (PARTITION BY user_id ORDER BY day) AS run FROM f),
+    s AS (SELECT user_id, run, min(day) AS a, max(day) AS b, count(*) AS n FROM g GROUP BY 1, 2)
+    SELECT user_id, streak_start, streak_end, streak_days FROM (
+      SELECT DISTINCT ON (user_id) user_id, a AS streak_start, b AS streak_end, n AS streak_days
+      FROM s ORDER BY user_id, n DESC, a) b
+    WHERE streak_days >= 5 ORDER BY user_id

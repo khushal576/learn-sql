@@ -1,0 +1,191 @@
+rc-002:
+  wrong: |
+    SELECT 1 AS level, m.id, m.name, m.job_title FROM employees e JOIN employees m ON m.id = e.manager_id WHERE e.id = 120 ORDER BY level
+  right: |
+    WITH RECURSIVE up(level, id, name, job_title, manager_id) AS (
+      SELECT 0, id, name, job_title, manager_id FROM employees WHERE id = 120
+      UNION ALL
+      SELECT up.level + 1, m.id, m.name, m.job_title, m.manager_id FROM up JOIN employees m ON m.id = up.manager_id
+    )
+    SELECT level, id, name, job_title FROM up WHERE level > 0 ORDER BY level
+rc-003:
+  wrong: |
+    SELECT c.id AS city_id, p.name || ' > ' || c.name AS path FROM regions c JOIN regions p ON p.id = c.parent_id WHERE c.id >= 18 ORDER BY c.id
+  right: |
+    SELECT c.id AS city_id, w.name || ' > ' || co.name || ' > ' || s.name || ' > ' || c.name AS path
+    FROM regions c JOIN regions s ON s.id = c.parent_id JOIN regions co ON co.id = s.parent_id JOIN regions w ON w.id = co.parent_id
+    WHERE w.parent_id IS NULL ORDER BY c.id
+rc-004:
+  wrong: |
+    SELECT started_at::date AS day, count(*) AS cancelled_trips FROM trips WHERE status = 'cancelled' AND started_at >= '2024-01-01' AND started_at < '2024-02-01' GROUP BY 1 ORDER BY 1
+  right: |
+    SELECT d::date AS day, (SELECT count(*) FROM trips t WHERE t.status = 'cancelled' AND t.started_at >= d AND t.started_at < d + interval '1 day') AS cancelled_trips
+    FROM generate_series(DATE '2024-01-01', DATE '2024-01-31', interval '1 day') d ORDER BY 1
+rc-005:
+  wrong: |
+    SELECT v.id AS vp_id, v.name AS vp_name, count(e.id) AS team_size FROM employees v LEFT JOIN employees e ON e.manager_id = v.id WHERE v.id BETWEEN 2 AND 6 GROUP BY v.id, v.name ORDER BY v.id
+  right: |
+    WITH RECURSIVE tree(vp_id, id) AS (
+      SELECT manager_id, id FROM employees WHERE manager_id BETWEEN 2 AND 6
+      UNION ALL
+      SELECT t.vp_id, e.id FROM tree t JOIN employees e ON e.manager_id = t.id
+    )
+    SELECT v.id AS vp_id, v.name AS vp_name, count(t.id) AS team_size FROM employees v LEFT JOIN tree t ON t.vp_id = v.id WHERE v.id BETWEEN 2 AND 6 GROUP BY v.id, v.name ORDER BY v.id
+rc-006:
+  wrong: |
+    SELECT p.id AS pallet_id, p.weight_kg + coalesce(sum(c.weight_kg), 0) AS total_kg FROM package_units p LEFT JOIN package_units c ON c.parent_id = p.id WHERE p.parent_id IS NULL GROUP BY p.id, p.weight_kg ORDER BY p.id
+  right: |
+    WITH RECURSIVE tree(root, id) AS (
+      SELECT id, id FROM package_units WHERE parent_id IS NULL
+      UNION ALL
+      SELECT t.root, u.id FROM tree t JOIN package_units u ON u.parent_id = t.id
+    )
+    SELECT t.root AS pallet_id, sum(u.weight_kg) AS total_kg FROM tree t JOIN package_units u ON u.id = t.id GROUP BY t.root ORDER BY t.root
+rc-007:
+  wrong: |
+    SELECT p.id AS pallet_id, max(CASE WHEN i.id IS NOT NULL THEN 3 WHEN c.id IS NOT NULL THEN 2 ELSE 1 END) AS max_level FROM package_units p LEFT JOIN package_units c ON c.parent_id = p.id LEFT JOIN package_units i ON i.parent_id = c.id WHERE p.parent_id IS NULL GROUP BY p.id ORDER BY p.id
+  right: |
+    WITH RECURSIVE up(leaf, cur, lvl) AS (
+      SELECT id, id, 1 FROM package_units
+      UNION ALL
+      SELECT up.leaf, u.parent_id, up.lvl + 1 FROM up JOIN package_units u ON u.id = up.cur WHERE u.parent_id IS NOT NULL
+    )
+    SELECT cur AS pallet_id, max(lvl) AS max_level FROM up JOIN package_units p ON p.id = up.cur WHERE p.parent_id IS NULL GROUP BY cur ORDER BY cur
+rc-008:
+  wrong: |
+    WITH RECURSIVE walk AS (
+      SELECT 1 AS hub, 0 AS hops
+      UNION ALL
+      SELECT r.to_hub, w.hops + 1 FROM walk w JOIN routes r ON r.from_hub = w.hub WHERE w.hops < 5
+    )
+    SELECT hub AS hub_id, min(hops) AS hops FROM walk WHERE hub <> 1 GROUP BY hub ORDER BY hops, hub
+  right: |
+    WITH RECURSIVE seen(hub, hops) AS (
+      SELECT to_hub, 1 FROM routes WHERE from_hub = 1
+      UNION
+      SELECT r.to_hub, s.hops + 1 FROM seen s JOIN routes r ON r.from_hub = s.hub WHERE s.hops < 40
+    )
+    SELECT hub AS hub_id, min(hops) AS hops FROM seen WHERE hub <> 1 GROUP BY hub ORDER BY hops, hub
+rc-009:
+  wrong: |
+    WITH RECURSIVE walk AS (
+      SELECT 1 AS hub, 0 AS km, 0 AS hops
+      UNION ALL
+      SELECT r.to_hub, w.km + r.km, w.hops + 1 FROM walk w JOIN routes r ON r.from_hub = w.hub WHERE w.hops < 6
+    )
+    SELECT hub AS hub_id, min(km) AS min_km FROM walk WHERE hub <> 1 GROUP BY hub ORDER BY hub
+  right: |
+    WITH RECURSIVE walk(hub, km, path) AS (
+      SELECT to_hub, km, ARRAY[1, to_hub] FROM routes WHERE from_hub = 1
+      UNION ALL
+      SELECT r.to_hub, w.km + r.km, w.path || r.to_hub FROM walk w JOIN routes r ON r.from_hub = w.hub WHERE NOT (r.to_hub = ANY (w.path))
+    )
+    SELECT hub AS hub_id, min(km) AS min_km FROM walk GROUP BY hub ORDER BY hub
+rc-010:
+  wrong: |
+    SELECT e.id, e.name, 2 AS depth, m.name || ' > ' || e.name AS path FROM employees e JOIN employees m ON m.id = e.manager_id WHERE e.id <= 70 AND m.manager_id = 3 ORDER BY e.id
+  right: |
+    WITH RECURSIVE tree(id, name, depth, path) AS (
+      SELECT e.id, e.name, 1, v.name || ' > ' || e.name FROM employees e JOIN employees v ON v.id = e.manager_id WHERE v.id = 3
+      UNION ALL
+      SELECT e.id, e.name, t.depth + 1, t.path || ' > ' || e.name FROM tree t JOIN employees e ON e.manager_id = t.id
+    )
+    SELECT id, name, depth, path FROM tree WHERE id <= 70 ORDER BY id
+rc-011:
+  wrong: |
+    WITH RECURSIVE f(n, a, b) AS (
+      SELECT 1, 0, 1
+      UNION ALL
+      SELECT n + 1, b, a + b FROM f WHERE n < 15
+    )
+    SELECT n, a AS fib FROM f ORDER BY n
+  right: |
+    SELECT n, round(power((1 + sqrt(5)::numeric) / 2, n) / sqrt(5::numeric))::bigint AS fib FROM generate_series(1, 15) n ORDER BY n
+rc-012:
+  wrong: |
+    SELECT v.id AS vp_id, v.name AS vp_name, v.salary + coalesce(sum(e.salary), 0) AS total_salary FROM employees v LEFT JOIN employees e ON e.manager_id = v.id WHERE v.id BETWEEN 2 AND 6 GROUP BY v.id, v.name, v.salary ORDER BY v.id
+  right: |
+    WITH RECURSIVE sub(vp_id, id, salary) AS (
+      SELECT id, id, salary FROM employees WHERE id BETWEEN 2 AND 6
+      UNION ALL
+      SELECT s.vp_id, e.id, e.salary FROM sub s JOIN employees e ON e.manager_id = s.id
+    )
+    SELECT v.id AS vp_id, v.name AS vp_name, sum(s.salary) AS total_salary FROM sub s JOIN employees v ON v.id = s.vp_id GROUP BY v.id, v.name ORDER BY v.id
+rc-013:
+  wrong: |
+    WITH RECURSIVE walk AS (
+      SELECT 1 AS hub, ARRAY[1] AS path, 0 AS km, 0 AS hops
+      UNION ALL
+      SELECT r.to_hub, w.path || r.to_hub, w.km + r.km, w.hops + 1 FROM walk w JOIN routes r ON r.from_hub = w.hub WHERE w.hops < 3
+    )
+    SELECT array_to_string(path, ' > ') AS path, km AS total_km FROM walk WHERE hub = 4 ORDER BY km, path
+  right: |
+    WITH RECURSIVE walk(hub, path, km) AS (
+      SELECT to_hub, '1 > ' || to_hub, km FROM routes WHERE from_hub = 1
+      UNION ALL
+      SELECT r.to_hub, w.path || ' > ' || r.to_hub, w.km + r.km
+      FROM walk w JOIN routes r ON r.from_hub = w.hub
+      WHERE w.hub <> 4 AND position(' ' || r.to_hub::text || ' ' IN ' ' || replace(w.path, '>', ' ') || ' ') = 0
+    )
+    SELECT path, km AS total_km FROM walk WHERE hub = 4 ORDER BY km, path
+rc-014:
+  wrong: |
+    SELECT r.id AS region_id, r.name, 0 AS level, count(h.id) AS hub_count FROM regions r LEFT JOIN hubs h ON h.region_id = r.id GROUP BY r.id, r.name ORDER BY r.id
+  right: |
+    WITH RECURSIVE up(start_id, cur, lvl) AS (
+      SELECT id, id, 1 FROM regions
+      UNION ALL
+      SELECT up.start_id, r.parent_id, up.lvl + 1 FROM up JOIN regions r ON r.id = up.cur WHERE r.parent_id IS NOT NULL
+    ), depth AS (
+      SELECT start_id AS id, max(lvl) AS level FROM up GROUP BY start_id
+    )
+    SELECT r.id AS region_id, r.name, d.level,
+           (SELECT count(*) FROM hubs h JOIN up u ON u.start_id = h.region_id WHERE u.cur = r.id) AS hub_count
+    FROM regions r JOIN depth d ON d.id = r.id ORDER BY r.id
+rc-015:
+  wrong: |
+    SELECT s.id AS driver_id, 0 AS level, count(d.id) AS subordinates, 0 AS team_km FROM drivers s LEFT JOIN drivers d ON d.supervisor_id = s.id GROUP BY s.id ORDER BY s.id
+  right: |
+    WITH RECURSIVE up(member, cur, lvl) AS (
+      SELECT id, id, 1 FROM drivers
+      UNION ALL
+      SELECT up.member, d.supervisor_id, up.lvl + 1 FROM up JOIN drivers d ON d.id = up.cur WHERE d.supervisor_id IS NOT NULL
+    ), lv AS (SELECT member, max(lvl) AS level FROM up GROUP BY member)
+    SELECT dr.id AS driver_id, lv.level,
+      (SELECT count(*) FROM up WHERE cur = dr.id AND member <> dr.id) AS subordinates,
+      coalesce((SELECT sum(t.km) FROM up JOIN trips t ON t.driver_id = up.member WHERE up.cur = dr.id AND t.status = 'done'), 0) AS team_km
+    FROM drivers dr JOIN lv ON lv.member = dr.id ORDER BY dr.id
+rc-016:
+  wrong: |
+    SELECT DISTINCT a.from_hub AS hub_id FROM routes a JOIN routes b ON b.from_hub = a.to_hub AND b.to_hub = a.from_hub ORDER BY hub_id
+  right: |
+    WITH RECURSIVE walk AS (
+      SELECT from_hub AS start, to_hub AS cur, ARRAY[from_hub, to_hub] AS path FROM routes
+      UNION ALL
+      SELECT w.start, r.to_hub, w.path || r.to_hub FROM walk w JOIN routes r ON r.from_hub = w.cur WHERE w.cur <> w.start AND (r.to_hub = w.start OR r.to_hub <> ALL (w.path))
+    )
+    SELECT DISTINCT start AS hub_id FROM walk WHERE cur = start ORDER BY hub_id
+rc-017:
+  wrong: |
+    SELECT c.id AS carton_id, c.weight_kg + coalesce(sum(k.weight_kg), 0) AS gross_kg FROM package_units c LEFT JOIN package_units k ON k.parent_id = c.id WHERE c.kind = 'carton' GROUP BY c.id, c.weight_kg ORDER BY c.id
+  right: |
+    WITH RECURSIVE up(node, anc) AS (
+      SELECT id, id FROM package_units
+      UNION ALL
+      SELECT up.node, u.parent_id FROM up JOIN package_units u ON u.id = up.anc WHERE u.parent_id IS NOT NULL
+    )
+    SELECT c.id AS carton_id, sum(n.weight_kg) AS gross_kg
+    FROM package_units c JOIN up ON up.anc = c.id JOIN package_units n ON n.id = up.node
+    WHERE c.kind = 'carton' GROUP BY c.id ORDER BY c.id
+rc-018:
+  wrong: |
+    SELECT row_number() OVER (ORDER BY min(e.id)) AS level, count(*) AS headcount, round(avg(e.salary), 2) AS avg_salary FROM employees e GROUP BY e.job_title ORDER BY level
+  right: |
+    WITH RECURSIVE up(id, cur, lvl) AS (
+      SELECT id, manager_id, 1 FROM employees
+      UNION ALL
+      SELECT up.id, e.manager_id, up.lvl + 1 FROM up JOIN employees e ON e.id = up.cur
+    )
+    SELECT max_l.level, count(*) AS headcount, round(avg(e.salary), 2) AS avg_salary
+    FROM (SELECT id, max(lvl) AS level FROM up GROUP BY id) max_l JOIN employees e ON e.id = max_l.id
+    GROUP BY max_l.level ORDER BY max_l.level

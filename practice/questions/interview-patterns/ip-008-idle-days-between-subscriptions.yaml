@@ -1,0 +1,34 @@
+id: ip-008
+title: Idle days between two subscriptions
+topic: interview-patterns
+tags: [gaps, lag, off-by-one, dates]
+difficulty: medium
+dataset: events
+prompt: |
+  The win-back team targets users who **left and came back**. For every user who had a **real gap** between two consecutive subscriptions, return the number of **idle days**: the full days with no subscription between the day the earlier one ended (`ended_on`, inclusive) and the day the next one started (`started_on`, inclusive). Example: ended on the 10th, next started on the 14th: days 11, 12, 13 are idle, so 3. Back-to-back subscriptions (idle days = 0) are not a gap and are excluded.
+
+  Return `user_id`, `prev_ended_on`, `next_started_on`, `idle_days`, ordered by `user_id`.
+solution_sql: |
+  SELECT user_id, prev_ended_on, started_on AS next_started_on, started_on - prev_ended_on - 1 AS idle_days
+  FROM (
+    SELECT user_id, started_on,
+           lag(ended_on) OVER (PARTITION BY user_id ORDER BY started_on) AS prev_ended_on
+    FROM subscriptions) t
+  WHERE prev_ended_on IS NOT NULL
+    AND started_on - prev_ended_on - 1 > 0
+  ORDER BY user_id
+compare: {order_matters: true}
+hints:
+  - "lag(ended_on) puts the previous end on the row of the next start; then subtract."
+  - "Count the idle days in the example by hand and check what plain `started_on - ended_on` gives."
+trap: |
+  Subtracting the dates without the `- 1` (`started_on - prev_ended_on`) counts the days from end to start, not the days IN BETWEEN: every number is one too high, and the 33 back-to-back users (difference 1) suddenly look like gaps, so 43 users are returned instead of the 10 who really left. Off-by-one on inclusive date ranges is the most common bug of every "gap between periods" report.
+followup: |
+  "How do you handle a user whose current subscription has `ended_on` NULL?" (It can never be 'previous' for a later row, so `lag(ended_on) IS NOT NULL` already drops it; a NULL end only matters as the last row.) "Idle days between EVERY pair of events instead?" (Same `lag`, applied to the sorted event days.)
+alternatives:
+  - |
+    SELECT a.user_id, a.ended_on AS prev_ended_on, b.started_on AS next_started_on, b.started_on - a.ended_on - 1 AS idle_days
+    FROM subscriptions a JOIN subscriptions b ON b.user_id = a.user_id AND b.started_on > a.ended_on
+    WHERE b.started_on - a.ended_on > 1
+      AND NOT EXISTS (SELECT 1 FROM subscriptions c WHERE c.user_id = a.user_id AND c.started_on > a.ended_on AND c.started_on < b.started_on)
+    ORDER BY a.user_id

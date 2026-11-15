@@ -1,0 +1,30 @@
+id: mk-023
+title: Teacher workload including idle teachers
+topic: mock-interviews
+tags: [left-join, outer-join-filter, distinct-count]
+difficulty: medium
+dataset: school
+prompt: |
+  The head teacher is preparing next term's timetable. For **every teacher** (even those with no course yet) return:
+
+  - `teacher` (name) and `subject`
+  - `courses`: number of courses they teach
+  - `students`: number of distinct students enrolled in those courses whose enrolment `status` is **not** 'dropped'
+  - `avg_final`: the average **final**-exam score of those courses, rounded to 2 decimals (NULL when there is none)
+
+  Order by `students` descending, then `teacher`.
+solution_sql: |
+  SELECT t.name AS teacher, t.subject,
+         count(DISTINCT c.id) AS courses,
+         count(DISTINCT e.student_id) AS students,
+         round(avg(sc.score), 2) AS avg_final
+  FROM teachers t
+  LEFT JOIN courses c ON c.teacher_id = t.id
+  LEFT JOIN enrollments e ON e.course_id = c.id AND e.status <> 'dropped'
+  LEFT JOIN scores sc ON sc.student_id = e.student_id AND sc.course_id = e.course_id AND sc.exam = 'final'
+  GROUP BY t.id, t.name, t.subject
+  ORDER BY students DESC, t.name
+compare: {order_matters: true}
+hints: ['Teachers without courses must survive every join: chain LEFT JOINs.', 'A condition on the right-hand table written in WHERE will cancel an outer join; where else can it go?']
+trap: 'Writing `WHERE e.status <> ''dropped''` after the outer joins removes the rows that have no enrolment at all (and NULL fails the test): the two idle teachers (Mr. Patel and Ms. Dubois) disappear, 10 rows instead of 12. Conditions on the optional side belong in the `ON` clause. Also count students with `DISTINCT`: a student appears once per course and exam row.'
+followup: '"Same list, but only teachers with fewer than 60 students." (A condition on an aggregate: HAVING. And explain why `students` must be DISTINCT while `courses` was also DISTINCT in the join.)'

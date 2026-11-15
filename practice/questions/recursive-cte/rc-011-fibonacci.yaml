@@ -1,0 +1,29 @@
+id: rc-011
+title: The first 15 Fibonacci numbers
+topic: recursive-cte
+tags:
+- recursive
+- generator
+- fibonacci
+difficulty: medium
+dataset: hr
+prompt: |
+  The data-science team wants a small test sequence: the first **15 Fibonacci numbers** where `fib(1) = 1`, `fib(2) = 1`, and every next number is the sum of the previous two (1, 1, 2, 3, 5, ...).
+
+  Return `n` (1 to 15) and `fib`, ordered by `n`. No table is needed.
+solution_sql: |
+  WITH RECURSIVE f(n, a, b) AS (
+    SELECT 1, 1, 1
+    UNION ALL
+    SELECT n + 1, b, a + b FROM f WHERE n < 15
+  )
+  SELECT n, a AS fib FROM f ORDER BY n
+compare:
+  order_matters: true
+hints:
+- 'Each row must remember TWO values: the current and the next Fibonacci number.'
+- Stop with a WHERE on the counter `n`.
+trap: |
+  The classic slip is the start: seeding with (0, 1) shifts the whole sequence by one (it yields 0 as the first number and ends at fib(14) = 377 instead of fib(15) = 610), and forgetting the stop condition never ends. Keep (current, next) in the row and stop on the counter.
+followup: |
+  "Is there a closed formula?" (Binet: round(phi^n / sqrt(5)); recursion is for sequences where no closed form exists.)

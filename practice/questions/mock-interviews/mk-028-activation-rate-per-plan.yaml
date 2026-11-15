@@ -1,0 +1,22 @@
+id: mk-028
+title: Activation rate per plan
+topic: mock-interviews
+tags: [distinct, exists, funnel, left-join]
+difficulty: easy
+dataset: events
+prompt: |
+  Growth wants the activation rate by plan. A user is **activated** when they have at least one `activated` event (a user can have that event more than once).
+
+  Return per `users.plan`: `plan`, `users` (all users on the plan), `activated_users` (users with at least one activated event) and `activation_pct` (activated_users as a percentage of users, 0-100, rounded to 2 decimals), ordered by `plan`.
+solution_sql: |
+  SELECT u.plan,
+         count(*) AS users,
+         count(*) FILTER (WHERE EXISTS (SELECT 1 FROM events e WHERE e.user_id = u.id AND e.name = 'activated')) AS activated_users,
+         round(100.0 * count(*) FILTER (WHERE EXISTS (SELECT 1 FROM events e WHERE e.user_id = u.id AND e.name = 'activated')) / count(*), 2) AS activation_pct
+  FROM users u
+  GROUP BY u.plan
+  ORDER BY u.plan
+compare: {order_matters: true}
+hints: ['Count users, not events.', '`EXISTS`, or a de-duplicated list of activated user ids, avoids counting a user twice.']
+trap: There are 500 `activated` events but only 480 activated users, because 20 users activated twice. Counting events makes the pro plan look 104.17% activated (250 of 240 users) and the free plan 62.50% instead of 60.00%. Count distinct users.
+followup: '"Why is the team plan at 0%?" (A good analyst checks the data before presenting: here team users never fire the activation event, so the metric does not apply to them: ask the product team how a team account is activated.)'

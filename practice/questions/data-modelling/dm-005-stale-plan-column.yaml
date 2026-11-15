@@ -1,0 +1,31 @@
+id: dm-005
+title: Is users.plan in sync with the subscriptions?
+topic: data-modelling
+tags: [denormalisation, data-quality, join]
+difficulty: medium
+dataset: events
+prompt: |
+  The product team stores a copy of the plan in `users.plan` (denormalised) while the source of truth is the **current subscription**: the `subscriptions` row with `ended_on IS NULL`. Users who have no current subscription are out of scope.
+
+  List the users whose `users.plan` **differs** from the plan of their current subscription.
+
+  Return `user_id`, `stored_plan` (from users) and `current_plan` (from the subscription), ordered by `user_id`.
+solution_sql: |
+  SELECT u.id AS user_id, u.plan AS stored_plan, s.plan AS current_plan
+  FROM users u
+  JOIN subscriptions s ON s.user_id = u.id AND s.ended_on IS NULL
+  WHERE u.plan <> s.plan
+  ORDER BY u.id
+compare: {order_matters: true}
+hints:
+  - "Which subscription rows are 'current'? Say it in the join condition, not afterwards in your head."
+trap: |
+  Comparing the stored plan with **every** subscription row of the user (old, ended ones included) flags users whose copy is perfectly right today just because they used to be on another plan: the list grows from 251 users to 275 rows, with 9 users who are in sync wrongly reported. "Current" must be part of the filter before you compare.
+followup: |
+  "How would you stop the copy from drifting?" (Drop the column and expose a view, or maintain it with a trigger / generated logic in one transaction; if it must stay, add a nightly reconciliation like this query.)
+alternatives:
+  - |
+    SELECT u.id AS user_id, u.plan AS stored_plan, s.plan AS current_plan
+    FROM subscriptions s, users u
+    WHERE s.ended_on IS NULL AND u.id = s.user_id AND s.plan IS DISTINCT FROM u.plan
+    ORDER BY 1

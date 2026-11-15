@@ -1,0 +1,30 @@
+id: pf-013
+title: Open orders per month
+topic: performance
+tags: [filter, conditional-aggregation, partial-index]
+difficulty: hard
+dataset: perf
+prompt: |
+  The ops dashboard charts the **number of open orders created per month** (`status = 'open'`) for the whole history. The author wrote one conditional aggregate over all orders; it reads 300 000 rows to count 6 000. The partial index on open orders can answer this on its own.
+
+  Return `month` (the first day of the month as a `date`) and `open_orders` (count), ordered by `month`. Every month has at least one open order.
+  Check also looks at the query plan: no sequential scan of `orders`.
+solution_sql: |
+  SELECT date_trunc('month', created_at)::date AS month, count(*) AS open_orders
+  FROM orders WHERE status = 'open' GROUP BY month ORDER BY month
+check:
+  type: plan
+  must_use: ["Index Scan|Index Only Scan|Bitmap Index Scan|Bitmap Heap Scan"]
+  must_not_use: ["Seq Scan on orders"]
+  note: "the open orders must be read through the partial index, not by scanning orders"
+compare: {order_matters: true}
+hints:
+  - "Filtering inside the aggregate (`FILTER`, `CASE`) means every row is read first and then judged. Filtering with WHERE decides before the rows are read."
+  - "Only `created_at` is needed from the open rows, and the partial index stores `created_at`."
+trap: |
+  `count(*) FILTER (WHERE status = 'open')` over the whole table (or `sum(CASE WHEN status='open' THEN 1 ELSE 0 END)`) returns the same 36 rows, but with no WHERE the planner has to read all 300 000 orders. Moving the condition to WHERE lets the partial index (6 000 rows, `created_at` only) answer it, even as an Index Only Scan.
+followup: |
+  "When is conditional aggregation the right tool?" (When several different conditions are counted in ONE pass, e.g. open, done and cancelled counts side by side: one scan beats three filtered scans.)
+alternatives:
+  - |
+    SELECT (date_trunc('month', created_at))::date AS month, count(*) AS open_orders FROM orders WHERE status IN ('open') GROUP BY 1 ORDER BY 1

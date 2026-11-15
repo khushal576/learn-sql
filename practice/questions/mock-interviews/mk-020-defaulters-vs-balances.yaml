@@ -1,0 +1,24 @@
+id: mk-020
+title: 'Defaulters: loan versus liquid money'
+topic: mock-interviews
+tags: [join, fan-out, pre-aggregate, left-join]
+difficulty: medium
+dataset: bank
+prompt: |
+  Collections is reviewing the customers who have a **defaulted** loan. For each of them return `customer_id`, `name`, `loan_principal` (the principal of the defaulted loan), `accounts` (how many accounts the customer holds) and `net_balance` (the sum of all signed transactions over **all** their accounts, 0 when there are none).
+
+  Order by `net_balance` descending, then `customer_id`.
+solution_sql: |
+  SELECT c.id AS customer_id, c.name, l.principal AS loan_principal,
+         b.accounts, b.net_balance
+  FROM loans l
+  JOIN customers c ON c.id = l.customer_id
+  JOIN (SELECT a.customer_id, count(DISTINCT a.id) AS accounts, coalesce(sum(t.amount), 0) AS net_balance
+        FROM accounts a LEFT JOIN transactions t ON t.account_id = a.id
+        GROUP BY a.customer_id) b ON b.customer_id = c.id
+  WHERE l.status = 'defaulted'
+  ORDER BY b.net_balance DESC, c.id
+compare: {order_matters: true}
+hints: ['One customer has several accounts and each account has many transactions: which of your columns gets repeated by those joins?', 'Aggregate accounts and transactions per customer in a subquery, then join the loan.']
+trap: 'Joining loans, accounts and transactions in one go and aggregating makes the loan principal appear once per transaction: Omar Kim''s 30,147.00 loan shows as 2,441,907.00 and his accounts as 81. The balance looks right (it lives at the lowest level) which hides the bug. Aggregate the many side per customer first, or keep `principal` out of the multiplied rows.'
+followup: '"A customer has two defaulted loans. Does your query still work?" (Only if the loan side is also pre-aggregated per customer; otherwise the loans multiply each other.)'

@@ -1,0 +1,31 @@
+id: dm-010
+title: Null audit of every nullable column
+topic: data-modelling
+tags: [information-schema, metadata, query_to_xml, "null"]
+difficulty: hard
+dataset: events
+prompt: |
+  Before tightening the model, the data owner wants an audit: for **every column of the current dataset schema that is allowed to be NULL**, how many rows actually hold NULL, out of how many rows in its table?
+
+  Return `table_name`, `column_name`, `null_rows` and `total_rows`, ordered by `table_name`, `column_name`. Columns declared NOT NULL must not appear.
+
+  (You cannot run dynamic SQL, but PostgreSQL can evaluate a query given as text inside a SELECT: look at `query_to_xml` with `format('... %I ...')` and `xpath`.)
+solution_sql: |
+  SELECT c.table_name, c.column_name,
+         (xpath('/row/n/text()', x.r))[1]::text::int AS null_rows,
+         (xpath('/row/t/text()', x.r))[1]::text::int AS total_rows
+  FROM information_schema.columns c
+  JOIN information_schema.tables tb ON tb.table_schema = c.table_schema AND tb.table_name = c.table_name AND tb.table_type = 'BASE TABLE'
+  CROSS JOIN LATERAL query_to_xml(
+       format('SELECT count(*) - count(%I) AS n, count(*) AS t FROM %I.%I', c.column_name, c.table_schema, c.table_name),
+       false, true, '') AS x(r)
+  WHERE c.table_schema = current_schema() AND c.is_nullable = 'YES'
+  ORDER BY c.table_name, c.column_name
+compare: {order_matters: true}
+hints:
+  - "information_schema.columns has `is_nullable`. query_to_xml(sql, nulls, tableforest, targetns) runs the SQL text and returns the rows as xml."
+  - "With tableforest = true every row becomes an element named row; xpath('/row/n/text()', x) pulls one value out."
+trap: |
+  Without the `is_nullable = 'YES'` filter the audit lists every column of every table with 0 nulls next to the real ones and the interesting rows drown (users has 9 columns, subscriptions 5 ...). Keep the schema in the dynamic query (`format('%I.%I', ...)` with `table_schema`) so that the audit reads this dataset's tables.
+followup: |
+  "Which of these columns would you make NOT NULL?" (Those with 0 nulls and a business rule behind them - a constraint is a statement about the future too; `ALTER TABLE ... ALTER COLUMN ... SET NOT NULL` scans the table once to prove it.)

@@ -1,0 +1,29 @@
+id: rc-006
+title: Gross weight of each pallet
+topic: recursive-cte
+tags:
+- recursive
+- tree
+- sum
+difficulty: medium
+dataset: logistics
+prompt: |
+  The loading dock must weigh every **root pallet** (units with no parent) before it goes on a truck. A pallet holds cartons, cartons can hold other cartons, and cartons hold items; `weight_kg` is the unit's **own** weight only (the wood of the pallet, the cardboard of a carton, the item itself).
+
+  Return `pallet_id` and `total_kg` = the pallet's own weight plus everything inside it at any depth, ordered by `pallet_id`.
+solution_sql: |
+  WITH RECURSIVE tree AS (
+    SELECT id AS pallet_id, id, weight_kg FROM package_units WHERE parent_id IS NULL
+    UNION ALL
+    SELECT t.pallet_id, u.id, u.weight_kg FROM package_units u JOIN tree t ON u.parent_id = t.id
+  )
+  SELECT pallet_id, sum(weight_kg) AS total_kg FROM tree GROUP BY pallet_id ORDER BY pallet_id
+compare:
+  order_matters: true
+hints:
+- Carry the root pallet id down the recursion so every descendant row knows which pallet it belongs to.
+- Include the anchor row's own weight.
+trap: |
+  Summing only the direct children (or only the items) misses the cartons nested inside cartons and the tare weights: pallet 1 would show a fraction of its real 89.25 kg. Every level must be pulled in before the SUM.
+followup: |
+  "Which pallet is the heaviest, and how many units does it hold?" (count(*) - 1 on the same recursion.)

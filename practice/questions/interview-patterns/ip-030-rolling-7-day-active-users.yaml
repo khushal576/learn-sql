@@ -1,0 +1,34 @@
+id: ip-030
+title: Rolling 7-day active users
+topic: interview-patterns
+tags: [rolling-window, count-distinct, dau]
+difficulty: hard
+dataset: events
+prompt: |
+  The weekly report needs the **rolling 7-day active users** (WAU) for five reporting days: 2024-03-01, 2024-03-15, 2024-04-01, 2024-04-15 and 2024-04-30.
+  For a reporting day `D`, WAU is the number of **distinct users with at least one event of any kind** on the UTC calendar days `D-6 .. D` (seven days, `D` included).
+  Return `day` and `active_users_7d`, ordered by `day`.
+solution_sql: |
+  WITH report(day) AS (
+    VALUES (DATE '2024-03-01'), (DATE '2024-03-15'), (DATE '2024-04-01'), (DATE '2024-04-15'), (DATE '2024-04-30')
+  )
+  SELECT r.day, count(DISTINCT e.user_id) AS active_users_7d
+  FROM report r
+  JOIN events e ON (e.ts AT TIME ZONE 'UTC')::date BETWEEN r.day - 6 AND r.day
+  GROUP BY r.day
+  ORDER BY r.day
+compare: {order_matters: true}
+hints:
+  - "A range join: each reporting day matches all events of its 7-day window."
+  - "A user active on three of the seven days is ONE active user for the window."
+trap: |
+  Summing daily active users (a rolling `SUM` of per-day distinct counts, e.g. with a `ROWS BETWEEN 6 PRECEDING` frame over a daily DAU table) counts a returning user once per day:
+  2024-03-01 gives 491 instead of 173, 2024-04-30 gives 181 instead of 51. Distinct counts are not additive across days.
+followup: |
+  "Can a window function do it?" `COUNT(DISTINCT)` is not allowed as a window function in Postgres, which is why the range join (or a self join on a daily user table) is the standard answer.
+alternatives:
+  - |
+    WITH d(user_id, day) AS (SELECT DISTINCT user_id, (ts AT TIME ZONE 'UTC')::date FROM events)
+    SELECT r.day, (SELECT count(DISTINCT d.user_id) FROM d WHERE d.day BETWEEN r.day - 6 AND r.day)::int AS active_users_7d
+    FROM (VALUES (DATE '2024-03-01'), (DATE '2024-03-15'), (DATE '2024-04-01'), (DATE '2024-04-15'), (DATE '2024-04-30')) AS r(day)
+    ORDER BY r.day

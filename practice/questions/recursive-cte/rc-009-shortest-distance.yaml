@@ -1,0 +1,32 @@
+id: rc-009
+title: Shortest distance from the main hub
+topic: recursive-cte
+tags:
+- recursive
+- graph
+- cycle
+- min
+difficulty: medium
+dataset: logistics
+prompt: |
+  Dispatch wants the **shortest driving distance** from **main hub 1** to every other hub, following the one-way `routes` (sum of `km` along the way; a route may pass through several hubs). The map has loops and several alternative paths with different lengths, e.g. to hub 4.
+
+  Return `hub_id` and `min_km` for every reachable hub **other than hub 1**, ordered by `hub_id`.
+solution_sql: |
+  WITH RECURSIVE walk AS (
+    SELECT 1 AS hub, 0 AS km, ARRAY[1] AS path
+    UNION ALL
+    SELECT r.to_hub, w.km + r.km, w.path || r.to_hub
+    FROM walk w JOIN routes r ON r.from_hub = w.hub
+    WHERE r.to_hub <> ALL (w.path)
+  )
+  SELECT hub AS hub_id, min(km) AS min_km FROM walk WHERE hub <> 1 GROUP BY hub ORDER BY hub
+compare:
+  order_matters: true
+hints:
+- Carry the running km and the visited path; every simple path becomes one row.
+- The shortest distance is a MIN per destination over all those rows.
+trap: |
+  Capping the depth to keep the loops finite ('6 hops should be plenty') loses the far end of the network: the farthest hubs need 7 and 8 routes, so a 6-hop cap returns 25 of the 27 hubs. Remember the path to avoid revisiting a hub, take MIN over all paths per destination.
+followup: |
+  "Why does this not scale to a big road network?" (it enumerates every simple path; use Dijkstra in application code or pgRouting.)

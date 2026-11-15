@@ -1,0 +1,46 @@
+id: ip-027
+title: Merge bookings into occupied periods
+topic: interview-patterns
+tags: [merge-intervals, islands, running-max]
+difficulty: hard
+dataset: hotel
+prompt: |
+  For rooms **5 and 10**, Operations wants a continuous-occupancy timeline instead of individual bookings.
+  Take the room's **confirmed** bookings and merge every booking that **overlaps** or **touches** the previous period (a booking starting the day the previous one ends, `check_in = check_out`, continues the period)
+  into one occupied period. Several bookings can overlap one long stay (double-bookings), so a short booking inside a long stay must not cut the period.
+  Return `room_id`, `period_start` (earliest `check_in`), `period_end` (latest `check_out`) and `bookings` (how many bookings were merged), ordered by `room_id`, `period_start`.
+solution_sql: |
+  WITH b AS (
+    SELECT room_id, id, check_in, check_out,
+           max(check_out) OVER (PARTITION BY room_id ORDER BY check_in, id
+                                ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) AS prev_max_out
+    FROM bookings
+    WHERE status = 'confirmed' AND room_id IN (5, 10)
+  ), f AS (
+    SELECT *, CASE WHEN prev_max_out IS NULL OR check_in > prev_max_out THEN 1 ELSE 0 END AS new_period FROM b
+  ), g AS (
+    SELECT *, sum(new_period) OVER (PARTITION BY room_id ORDER BY check_in, id) AS period_no FROM f
+  )
+  SELECT room_id, min(check_in) AS period_start, max(check_out) AS period_end, count(*) AS bookings
+  FROM g
+  GROUP BY room_id, period_no
+  ORDER BY room_id, period_start
+compare: {order_matters: true}
+hints:
+  - "Compare each booking's check_in with the LATEST check_out seen so far in the room, not just with the previous row's."
+  - "A running MAX over 'all previous rows' (ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) is the key; then number the periods with a running SUM."
+trap: |
+  Comparing with only the previous row's `check_out` (`lag`) mis-cuts every period where a short double-booked stay sits inside a long one: the next booking starts after the short stay ended
+  and a phantom break appears. For rooms 5 and 10 that splits one real period into two (48 rows instead of the correct 47).
+followup: |
+  "Total occupied nights per room from this?" Sum `period_end - period_start` over the merged periods - correct even with double-bookings, unlike summing per-booking nights.
+alternatives:
+  - |
+    WITH s AS (
+      SELECT room_id, check_in, check_out FROM bookings WHERE status = 'confirmed' AND room_id IN (5, 10)
+    )
+    SELECT room_id, p.period_start, p.period_end, p.bookings FROM (
+      SELECT room_id, min(check_in) AS period_start, max(check_out) AS period_end, count(*) AS bookings
+      FROM (SELECT *, sum(brk) OVER (PARTITION BY room_id ORDER BY check_in, check_out DESC) AS g
+            FROM (SELECT *, CASE WHEN check_in <= max(check_out) OVER (PARTITION BY room_id ORDER BY check_in, check_out DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) THEN 0 ELSE 1 END AS brk FROM s) q) z
+      GROUP BY room_id, g) p ORDER BY 1, 2

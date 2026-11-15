@@ -1,0 +1,27 @@
+id: ds-003
+title: Clean up customer names
+topic: dates-strings
+tags: [initcap, trim, regexp_replace, text-cleaning]
+difficulty: easy
+dataset: events
+prompt: |
+  The CRM import needs tidy names. For **users 1 to 60**, build `clean_name`: no leading/trailing spaces, **exactly one space** between words, and every word capitalised like `Maya Kim` (`ZARA SMITH`, `ravi  rossi` and `  Ana Muller ` all need fixing).
+
+  Return `id`, `full_name` (as stored) and `clean_name` only for the users whose stored `full_name` is **not already identical** to the clean version. Order by `id`.
+solution_sql: |
+  SELECT id, full_name, initcap(regexp_replace(trim(full_name), '\s+', ' ', 'g')) AS clean_name
+  FROM users
+  WHERE id <= 60
+    AND full_name <> initcap(regexp_replace(trim(full_name), '\s+', ' ', 'g'))
+  ORDER BY id
+compare: {order_matters: true}
+hints:
+  - "`initcap` fixes the capitals; something else must fix the spacing."
+  - "`trim` only touches the two ends of the string."
+trap: |
+  `initcap(trim(full_name))` looks complete but `trim` never touches spaces **between** words: `Lena  Patel` (two spaces) stays as it is, so the `clean_name` values are wrong for those users and they are even treated as 'already clean' by the filter. Collapse runs of whitespace with `regexp_replace(..., '\s+', ' ', 'g')` (the `'g'` flag matters).
+followup: |
+  "And for non-breaking spaces or tabs?" (`\s` in Postgres regexes already covers tabs/newlines; a non-breaking space `U+00A0` needs an explicit class.)
+alternatives:
+  - |
+    SELECT id, full_name, regexp_replace(initcap(btrim(full_name)), ' {2,}', ' ', 'g') AS clean_name FROM users WHERE id <= 60 AND full_name <> regexp_replace(initcap(btrim(full_name)), ' {2,}', ' ', 'g') ORDER BY id

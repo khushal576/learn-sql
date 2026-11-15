@@ -1,0 +1,28 @@
+id: mk-014
+title: Payroll as of a past date
+topic: mock-interviews
+tags: [salary-history, distinct-on, as-of, lateral]
+difficulty: medium
+dataset: hr
+prompt: |
+  Finance is restating the year-end 2022 books. For every employee the salary in force on **2022-12-31** is the `salary_history` row with the **latest `effective_date` on or before that day**. Employees without such a row (not yet hired) are not part of the payroll then.
+
+  Return per department `department` (name), `employees` (number of people with a salary in force) and `payroll` (sum of those salaries), ordered by `payroll` descending, then `department`.
+solution_sql: |
+  WITH cur AS (
+    SELECT DISTINCT ON (h.emp_id) h.emp_id, h.salary
+    FROM salary_history h
+    WHERE h.effective_date <= DATE '2022-12-31'
+    ORDER BY h.emp_id, h.effective_date DESC)
+  SELECT d.name AS department,
+         count(*) AS employees,
+         sum(c.salary) AS payroll
+  FROM cur c
+  JOIN employees e ON e.id = c.emp_id
+  JOIN departments d ON d.id = e.dept_id
+  GROUP BY d.id, d.name
+  ORDER BY payroll DESC, d.name
+compare: {order_matters: true}
+hints: ['`employees.salary` is the current salary; history tells you what was valid back then.', 'Pick one row per employee first (the latest one up to the date), then aggregate.']
+trap: 'Using today''s `employees.salary` for people hired before the date overstates every department (Sales: 2,437,644.00 instead of 2,249,428.10) because it contains all raises granted afterwards. The right source is the salary history with `effective_date <= date`, taking the latest row per employee.'
+followup: '"How do you do this for 100 different dates at once?" (Build a date spine and use a LATERAL join or a range join on effective/valid-to intervals derived with `lead(effective_date)`.)'

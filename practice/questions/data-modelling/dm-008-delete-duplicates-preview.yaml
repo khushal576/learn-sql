@@ -1,0 +1,29 @@
+id: dm-008
+title: Which duplicate events would a clean-up delete?
+topic: data-modelling
+tags: [duplicates, row-number, delete-preview]
+difficulty: hard
+dataset: events
+prompt: |
+  The tracking pipeline double-delivered some events. Data engineering wants to add `UNIQUE (user_id, ts, name)` to `events` and first de-duplicate: among rows sharing the same `user_id`, `ts` **and** `name`, keep the one with the **highest `id`** and delete the others.
+
+  Before anyone runs a `DELETE`, return the `id` of every row that **would be deleted**, ordered by `id`.
+solution_sql: |
+  SELECT id
+  FROM (SELECT id, row_number() OVER (PARTITION BY user_id, ts, name ORDER BY id DESC) AS rn
+        FROM events) x
+  WHERE rn > 1
+  ORDER BY id
+compare: {order_matters: true}
+hints:
+  - "row_number() numbers the rows inside each group; which groups, and in which order?"
+  - "Re-read what makes two events 'the same' in the prompt - it is more than the timestamp."
+trap: |
+  Treating "same user at the same timestamp" as the duplicate key (forgetting `name`) also marks real, different events that merely happen at the same second - 547 rows instead of 246 would be deleted, among them legitimate pairs such as a `page_view` and a `feature_used`. The partition must be exactly the key of the constraint you are about to create.
+followup: |
+  "How do you delete them safely?" (`DELETE FROM events WHERE id IN (<this query>)` inside a transaction after checking the count; then `ALTER TABLE ... ADD UNIQUE (user_id, ts, name)` - and a lock-friendlier way is a UNIQUE index created CONCURRENTLY first.)
+alternatives:
+  - |
+    SELECT a.id FROM events a
+    WHERE EXISTS (SELECT 1 FROM events b WHERE b.user_id = a.user_id AND b.ts = a.ts AND b.name = a.name AND b.id > a.id)
+    ORDER BY a.id

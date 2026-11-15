@@ -1,0 +1,37 @@
+id: ip-003
+title: Sessions per user summary
+topic: interview-patterns
+tags: [sessionization, lag, first-row, null]
+difficulty: easy
+dataset: events
+prompt: |
+  The support team wants a one-line activity summary per user for **users 1 to 20**. A **session** is a burst of one user's events: the user's first event starts a session, and so does any event that comes **more than 30 minutes** after the user's previous event (events with equal timestamps are ordered by `id`). All times **in UTC**.
+
+  Return `user_id`, `sessions` (number of sessions), `first_event_at` and `last_event_at` (timestamps in UTC, without time zone), ordered by `user_id`.
+solution_sql: |
+  WITH g AS (
+    SELECT user_id, ts,
+           CASE WHEN lag(ts) OVER w IS NULL OR ts - lag(ts) OVER w > interval '30 minutes' THEN 1 ELSE 0 END AS starts
+    FROM events WHERE user_id <= 20
+    WINDOW w AS (PARTITION BY user_id ORDER BY ts, id))
+  SELECT user_id,
+         sum(starts) AS sessions,
+         min(ts) AT TIME ZONE 'UTC' AS first_event_at,
+         max(ts) AT TIME ZONE 'UTC' AS last_event_at
+  FROM g
+  GROUP BY user_id
+  ORDER BY user_id
+compare: {order_matters: true}
+hints:
+  - "A session start is a 1, everything else a 0 - count the 1s per user."
+  - "What does `ts - lag(ts) > interval '30 minutes'` evaluate to on the user's FIRST event?"
+trap: |
+  `CASE WHEN ts - lag(ts) OVER (...) > interval '30 minutes' THEN 1 ELSE 0 END` forgets the first event: its lag is NULL, the comparison is NULL, the ELSE branch gives 0, and the user's first session is never counted. Every one of the 20 users is one session short (225 sessions in total instead of 245). Always decide explicitly what the first row of a partition means.
+followup: |
+  "How do you notice this bug without the right answer?" (Sanity check: a user with events must have at least 1 session; a user whose count is 0 exposes it.) "Can `COALESCE(gap, interval 'infinity')` replace the IS NULL test?" (Yes - the missing previous event is treated as an infinitely long gap.)
+alternatives:
+  - |
+    SELECT user_id, count(*) FILTER (WHERE gap IS NULL OR gap > interval '30 minutes') AS sessions,
+           min(ts) AT TIME ZONE 'UTC' AS first_event_at, max(ts) AT TIME ZONE 'UTC' AS last_event_at
+    FROM (SELECT user_id, ts, ts - lag(ts) OVER (PARTITION BY user_id ORDER BY ts, id) AS gap FROM events WHERE user_id <= 20) t
+    GROUP BY user_id ORDER BY user_id

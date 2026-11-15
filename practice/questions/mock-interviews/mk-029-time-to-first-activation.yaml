@@ -1,0 +1,31 @@
+id: mk-029
+title: Hours from signup to first activation
+topic: mock-interviews
+tags: [aggregation, percentile, min, timestamp-math]
+difficulty: medium
+dataset: events
+prompt: |
+  Onboarding measures how long users need to activate. For every user who activated, take the **first** `activated` event (earliest `ts`) and compute the hours between `users.signup_at` and that event (fractional hours).
+
+  Return per plan: `plan`, `activated_users`, `avg_hours` (average, rounded to 2 decimals) and `median_hours` (rounded to 2 decimals), ordered by `plan`. Plans without activated users do not appear.
+solution_sql: |
+  WITH first_act AS (
+    SELECT user_id, min(ts) AS first_activated
+    FROM events
+    WHERE name = 'activated'
+    GROUP BY user_id),
+  h AS (
+    SELECT u.plan, extract(epoch FROM f.first_activated - u.signup_at) / 3600.0 AS hours
+    FROM first_act f
+    JOIN users u ON u.id = f.user_id)
+  SELECT plan,
+         count(*) AS activated_users,
+         round(avg(hours)::numeric, 2) AS avg_hours,
+         round((percentile_cont(0.5) WITHIN GROUP (ORDER BY hours))::numeric, 2) AS median_hours
+  FROM h
+  GROUP BY plan
+  ORDER BY plan
+compare: {order_matters: true}
+hints: ['A user may have two `activated` events: reduce to one row per user first.', The median is `percentile_cont(0.5) WITHIN GROUP (ORDER BY ...)`.]
+trap: 'Averaging over *every* activated event counts users who activated twice twice: the free plan shows 250 ''users'' and an average of 3.91 hours instead of 240 users and 4.01 hours; the pro plan 250 and 4.27 instead of 240 and 4.09. Reduce to the first activation per user (`min(ts)` grouped by user) before averaging.'
+followup: '"Why look at the median as well as the average?" (A few very slow activations pull the mean up; the median says what a typical user experiences.)'

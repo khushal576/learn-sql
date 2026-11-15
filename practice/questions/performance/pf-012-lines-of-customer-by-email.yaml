@@ -1,0 +1,34 @@
+id: pf-012
+title: Order lines for a customer found by e-mail
+topic: performance
+tags: [join, index, nested-loop, lower]
+difficulty: hard
+dataset: perf
+prompt: |
+  A support tool shows every **order line** of the customer who wrote from **`Sofia.CHEN123@Example.com`** (case as typed by the customer). It joins `customers` (50 000), `orders` (300 000) and `order_items` (600 000) and takes seconds, although every join column and the e-mail lookup have an index suited to it. A good plan starts at one customer row and follows keys outwards.
+
+  Return `order_id`, `line_no`, `sku`, `qty`, ordered by `order_id`, `line_no`.
+  Check also looks at the query plan: none of the three tables may be read sequentially.
+solution_sql: |
+  SELECT i.order_id, i.line_no, i.sku, i.qty
+  FROM customers c
+  JOIN orders o ON o.customer_id = c.id
+  JOIN order_items i ON i.order_id = o.id
+  WHERE lower(c.email) = lower('Sofia.CHEN123@Example.com')
+  ORDER BY i.order_id, i.line_no
+check:
+  type: plan
+  must_use: ["Index Scan|Index Only Scan|Bitmap Index Scan|Bitmap Heap Scan"]
+  must_not_use: ["Seq Scan on customers", "Seq Scan on orders", "Seq Scan on order_items"]
+  note: "the whole chain customer -> orders -> lines must be reached through indexes"
+compare: {order_matters: true}
+hints:
+  - "The first step finds ONE customer; how is the e-mail index defined?"
+  - "From that customer the join keys (orders.customer_id, order_items.order_id) are indexed, so the rest follows by lookups."
+trap: |
+  Matching the e-mail with `c.email ILIKE 'sofia.chen123@example.com'` (or lower-casing only the constant) gives the same 12 lines but cannot use the expression index, so `customers` is read in full; the join then has no single starting row and the planner is tempted into bigger scans. The e-mail predicate must be `lower(c.email) = <lowercase constant>`.
+followup: |
+  "Same query, but the customer is a power user with 1,500 orders: would you expect the same plan?" (Probably still index-driven, but the planner may switch the inner joins to hash joins when the outer side grows; look at the estimated rows.)
+alternatives:
+  - |
+    SELECT i.order_id, i.line_no, i.sku, i.qty FROM order_items i WHERE i.order_id IN (SELECT o.id FROM orders o WHERE o.customer_id IN (SELECT c.id FROM customers c WHERE lower(c.email) = 'sofia.chen123@example.com')) ORDER BY 1, 2

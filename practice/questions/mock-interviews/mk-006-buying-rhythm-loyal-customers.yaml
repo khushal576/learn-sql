@@ -1,0 +1,28 @@
+id: mk-006
+title: Buying rhythm of loyal customers
+topic: mock-interviews
+tags: [window, lag, gaps, filter-order]
+difficulty: hard
+dataset: ecommerce
+prompt: |
+  Loyalty wants to understand how often our regulars come back. Consider only **delivered** orders and customers with **at least 20 delivered orders**. The gap of an order is the number of days since the customer's **previous delivered order** (the first order has no gap; same-day orders are ordered by `id`).
+
+  Return `customer_id`, `delivered_orders`, `avg_gap_days` (average gap, rounded to 1 decimal), `longest_gap_days`, ordered by `avg_gap_days` ascending, then `customer_id`.
+solution_sql: |
+  WITH g AS (
+    SELECT customer_id,
+           order_date - lag(order_date) OVER (PARTITION BY customer_id ORDER BY order_date, id) AS gap_days
+    FROM orders
+    WHERE status = 'delivered')
+  SELECT customer_id,
+         count(*) AS delivered_orders,
+         round(avg(gap_days), 1) AS avg_gap_days,
+         max(gap_days) AS longest_gap_days
+  FROM g
+  GROUP BY customer_id
+  HAVING count(*) >= 20
+  ORDER BY avg_gap_days, customer_id
+compare: {order_matters: true}
+hints: ['`lag()` over a partition by customer. What rows are in the window when you compute it?', Filtering on `status` AFTER computing `lag` changes what 'previous' means.]
+trap: 'If you compute `lag` over all of a customer''s orders and only afterwards keep the delivered ones, the ''previous order'' may be a cancelled one. 18 customers alternate between delivered and cancelled orders: their true average gap is 21.0 days, the wrong query reports about 10.0 and puts them at the top of the ranking. Filter the rows (in a CTE or in the same `WHERE` that precedes the window) BEFORE the window function runs.'
+followup: '"How would you flag customers who are overdue?" (Compare `current_date - max(order_date)` with their own average gap, e.g. flag when it is more than 2x.)'

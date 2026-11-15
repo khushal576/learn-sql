@@ -1,0 +1,31 @@
+id: ds-011
+title: Most popular email domain
+topic: dates-strings
+tags: [split_part, lower, ties, text-cleaning]
+difficulty: medium
+dataset: events
+prompt: |
+  Partnerships wants to know which e-mail domain(s) most users sign up with. Domains must be compared **ignoring case and stray spaces** (`Example.Com`, `EXAMPLE.COM` and `example.com ` are the same domain).
+
+  Return `domain` (lower case) and `users` for the domain(s) with the **highest number of users**, keeping **all domains that tie** for first place. Order by `domain`.
+solution_sql: |
+  WITH d AS (
+    SELECT split_part(lower(trim(email)), '@', 2) AS domain, count(*) AS users
+    FROM users
+    GROUP BY 1
+  )
+  SELECT domain, users
+  FROM d
+  WHERE users = (SELECT max(users) FROM d)
+  ORDER BY domain
+compare: {order_matters: true}
+hints:
+  - "First count per cleaned domain, then keep the rows equal to the maximum."
+  - "`LIMIT 1` keeps exactly one row, whatever the data says."
+trap: |
+  Two things fail. Grouping the **raw** domain splits one domain into up to 4 spellings (`mail.test`, `MAIL.TEST`, `mail.test ` with a trailing space ...), so every count is too small (221 instead of 267). And `ORDER BY users DESC LIMIT 1` hides the tie: after cleaning, `corp.example` and `mail.test` both have 267 users (`example.com` has 266), so the answer has 2 rows, not 1.
+followup: |
+  "Rank them with `rank()`/`dense_rank()` instead." (`rank() OVER (ORDER BY users DESC) = 1` keeps ties too, like the max filter.)
+alternatives:
+  - |
+    SELECT domain, users FROM (SELECT split_part(lower(btrim(email)), '@', 2) AS domain, count(*) AS users, rank() OVER (ORDER BY count(*) DESC) AS rk FROM users GROUP BY 1) t WHERE rk = 1 ORDER BY domain

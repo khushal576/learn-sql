@@ -1,0 +1,30 @@
+id: ja-008
+title: How many users per tag (and how many have none)?
+topic: json-arrays
+tags: [unnest, left-join-lateral, "null", arrays]
+difficulty: medium
+dataset: events
+prompt: |
+  Product wants a **tag census** of the user base from `users.tags`. Treat `beta` and `Beta` (any capitalisation) as the same tag, written in lower case. Users whose tags are NULL **or** an empty array are counted under the pseudo-tag `untagged`.
+
+  Return `tag` and `users` (distinct users), ordered by `users` descending, then `tag`.
+solution_sql: |
+  SELECT coalesce(lower(t.tag), 'untagged') AS tag, count(DISTINCT u.id) AS users
+  FROM users u
+  LEFT JOIN LATERAL unnest(u.tags) AS t(tag) ON true
+  GROUP BY 1
+  ORDER BY users DESC, tag
+compare: {order_matters: true}
+hints:
+  - "What does `FROM users, unnest(tags)` do with a user whose array is NULL or empty?"
+  - "A LEFT JOIN LATERAL ... ON true keeps the user and gives NULL for the missing element."
+trap: |
+  A plain `CROSS JOIN unnest(tags)` (or `FROM users, unnest(tags)`) produces no row for a NULL or empty array, so the 152 untagged users disappear and the census shows no `untagged` line at all. `LEFT JOIN LATERAL ... ON true` keeps them.
+followup: |
+  "What about a user tagged `beta` and `Beta` at once?" (After lower-casing they would count twice per tag - that is why the count is `DISTINCT u.id`; in this data it never happens, but a census query should not depend on it.)
+alternatives:
+  - |
+    SELECT tag, count(*) AS users FROM (
+      SELECT DISTINCT u.id, lower(t) AS tag FROM users u, unnest(u.tags) AS t
+      UNION SELECT id, 'untagged' FROM users WHERE coalesce(cardinality(tags), 0) = 0) x
+    GROUP BY tag ORDER BY users DESC, tag

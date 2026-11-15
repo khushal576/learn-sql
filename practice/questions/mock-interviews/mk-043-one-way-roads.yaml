@@ -1,0 +1,25 @@
+id: mk-043
+title: "One-way roads"
+topic: mock-interviews
+tags: ["anti-join", "self-join", "graph"]
+difficulty: easy
+dataset: logistics
+prompt: |
+  A road is **one-way** when it exists as a row (`from_hub` -> `to_hub`) but there is no row for the opposite direction (`to_hub` -> `from_hub`).
+  Planning wants all one-way roads: return `from_hub`, `to_hub`, `km`, ordered by `from_hub`, `to_hub`.
+solution_sql: |
+  SELECT r.from_hub, r.to_hub, r.km
+  FROM routes r
+  WHERE NOT EXISTS (
+    SELECT 1 FROM routes b WHERE b.from_hub = r.to_hub AND b.to_hub = r.from_hub
+  )
+  ORDER BY r.from_hub, r.to_hub
+compare: {order_matters: true}
+hints:
+  - "For every route you ask: does the mirrored row exist? That is an anti-join (NOT EXISTS or LEFT JOIN ... IS NULL)."
+  - "The mirrored row has the two hubs swapped - BOTH columns must match."
+  - "Do not worry about duplicates: the primary key is (from_hub, to_hub)."
+trap: |
+  Checking only that the destination has *some* outgoing road (`b.from_hub = r.to_hub`, forgetting `b.to_hub = r.from_hub`) tests something else - 'is the destination a dead end?' - and returns only 2 rows instead of the 23 one-way roads.
+followup: |
+  "List each two-way road once." Self-join with a.from_hub < a.to_hub AND the mirrored row existing - the inequality prevents the pair from appearing twice.

@@ -1,0 +1,34 @@
+id: dm-001
+title: Table inventory of the shop database
+topic: data-modelling
+tags: [information-schema, metadata, current-schema]
+difficulty: easy
+dataset: ecommerce
+prompt: |
+  A new analyst is onboarding onto the **shop** database and asks "what tables exist and how wide are they?". Build the answer from the catalog, not from memory.
+
+  List every **table** (not views) in the **current dataset schema** with its number of columns.
+
+  Return `table_name` and `column_count`, ordered by `table_name`.
+solution_sql: |
+  SELECT t.table_name, count(*) AS column_count
+  FROM information_schema.tables t
+  JOIN information_schema.columns c
+    ON c.table_schema = t.table_schema AND c.table_name = t.table_name
+  WHERE t.table_schema = current_schema() AND t.table_type = 'BASE TABLE'
+  GROUP BY t.table_name
+  ORDER BY t.table_name
+compare: {order_matters: true}
+hints:
+  - "information_schema describes EVERY schema you may see, not only the shop. Which function tells you the schema you are in?"
+  - "Tables and columns live in two different information_schema views; join them on schema AND name."
+trap: |
+  `information_schema.columns` lists the columns of all datasets side by side. Grouping by `table_name` alone merges same-named tables of different schemas: `customers` exists in the shop and in the bank, so its column count is inflated (and tables of other schemas that happen to exist only there would be listed too). Always filter `table_schema = current_schema()`, and the schema belongs in the join key as well.
+followup: |
+  "How would you also list views and materialised views?" (`information_schema.tables` shows views with table_type = 'VIEW'; materialised views are only in `pg_class`/`pg_matviews`.)
+alternatives:
+  - |
+    SELECT c.relname AS table_name, count(*) AS column_count
+    FROM pg_class c JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped
+    WHERE c.relnamespace = current_schema()::regnamespace AND c.relkind = 'r'
+    GROUP BY c.relname ORDER BY c.relname

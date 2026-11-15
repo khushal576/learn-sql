@@ -1,0 +1,41 @@
+id: ip-014
+title: Time to purchase inside a session
+topic: interview-patterns
+tags: [sessionization, lag, running-sum, filter, aggregation]
+difficulty: hard
+dataset: events
+prompt: |
+  E-commerce analytics asks: in the sessions where a user **bought something**, how long did it take from the start of the session to the **first purchase**? For **users 1 to 40**, sessionize each user's events (the user's first event starts a session; a new session starts when the gap to the user's previous event is **more than 30 minutes**; equal timestamps are ordered by `id`). A session "bought" if it contains at least one event named `purchase`. All times **in UTC**.
+
+  Return ONE row per such session: `user_id`, `session_no` (1, 2, 3, ... per user, counting ALL of the user's sessions), `session_start` (UTC, without time zone), `first_purchase_at` (UTC, without time zone), `seconds_to_purchase` (whole seconds from the start of the session to the first purchase), ordered by `user_id`, `session_no`.
+solution_sql: |
+  WITH g AS (
+    SELECT user_id, id, ts, name,
+           CASE WHEN lag(ts) OVER w IS NULL OR ts - lag(ts) OVER w > interval '30 minutes' THEN 1 ELSE 0 END AS starts
+    FROM events WHERE user_id <= 40
+    WINDOW w AS (PARTITION BY user_id ORDER BY ts, id)),
+  s AS (
+    SELECT *, sum(starts) OVER (PARTITION BY user_id ORDER BY ts, id) AS session_no FROM g)
+  SELECT user_id, session_no,
+         min(ts) AT TIME ZONE 'UTC' AS session_start,
+         min(ts) FILTER (WHERE name = 'purchase') AT TIME ZONE 'UTC' AS first_purchase_at,
+         extract(epoch FROM min(ts) FILTER (WHERE name = 'purchase') - min(ts))::int AS seconds_to_purchase
+  FROM s
+  GROUP BY user_id, session_no
+  HAVING count(*) FILTER (WHERE name = 'purchase') > 0
+  ORDER BY user_id, session_no
+compare: {order_matters: true}
+hints:
+  - "Sessionize ALL events first (the session of a purchase depends on the events around it), only then look at purchases."
+  - "Per session: `min(ts)` is the start and `min(ts) FILTER (WHERE name = 'purchase')` the first purchase; HAVING keeps sessions with a purchase."
+trap: |
+  Filtering to `name = 'purchase'` BEFORE sessionizing (or joining each purchase to its session and not aggregating). With only the purchase events, the gaps are measured between purchases, the session numbers are wrong and the session start is the purchase itself, so the time is 0 seconds everywhere; with the join-per-purchase variant, the 7 sessions that contain two or more purchases appear several times. Sessionize the complete stream first; reduce to one row per session with an aggregate.
+followup: |
+  "How would you compute the share of sessions that convert?" (Same session CTE: `count(*) FILTER (WHERE bought) / count(*)`, no HAVING.) "Why is a purchase at second 0 possible?" (A session can start with a purchase event; it counts as 0 seconds.)
+alternatives:
+  - |
+    WITH e AS (SELECT user_id, ts, name, ts - lag(ts) OVER (PARTITION BY user_id ORDER BY ts, id) AS gap FROM events WHERE user_id <= 40),
+    k AS (SELECT user_id, ts, name, count(*) FILTER (WHERE gap IS NULL OR gap > interval '30 minutes') OVER (PARTITION BY user_id ORDER BY ts ROWS UNBOUNDED PRECEDING) AS sn FROM e),
+    p AS (SELECT user_id, sn, min(ts) AS st, min(ts) FILTER (WHERE name = 'purchase') AS fp FROM k GROUP BY 1, 2)
+    SELECT user_id, sn AS session_no, st AT TIME ZONE 'UTC' AS session_start, fp AT TIME ZONE 'UTC' AS first_purchase_at, extract(epoch FROM fp - st)::int AS seconds_to_purchase
+    FROM p WHERE fp IS NOT NULL ORDER BY user_id, sn

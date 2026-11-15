@@ -1,0 +1,420 @@
+mk-037:
+  wrong: |
+    SELECT from_hub AS hub_id, count(*) AS trips, count(*) FILTER (WHERE status = 'cancelled') AS cancelled_trips, round(avg(fare), 2) AS avg_fare
+    FROM trips WHERE started_at BETWEEN '2024-01-01' AND '2024-03-31' GROUP BY from_hub ORDER BY from_hub
+  right: |
+    SELECT from_hub AS hub_id, count(*) AS trips, sum((status = 'cancelled')::int) AS cancelled_trips, round(sum(fare) / count(fare), 2) AS avg_fare
+    FROM trips WHERE started_at::date BETWEEN '2024-01-01' AND '2024-03-31' GROUP BY 1 ORDER BY 1
+mk-038:
+  wrong: |
+    SELECT date_trunc('month', started_at)::date AS month,
+           count(*) FILTER (WHERE status <> 'cancelled') AS finished_trips,
+           count(*) FILTER (WHERE status = 'delayed') AS delayed_trips,
+           round(100.0 * count(*) FILTER (WHERE status = 'delayed') / count(*), 2) AS delayed_pct
+    FROM trips GROUP BY 1 ORDER BY 1
+  right: |
+    SELECT date_trunc('month', started_at)::date AS month,
+           sum((status IN ('done', 'delayed'))::int) AS finished_trips,
+           sum((status = 'delayed')::int) AS delayed_trips,
+           round(100.0 * sum((status = 'delayed')::int) / sum((status IN ('done', 'delayed'))::int), 2) AS delayed_pct
+    FROM trips GROUP BY 1 ORDER BY 1
+mk-039:
+  wrong: |
+    WITH RECURSIVE walk AS (
+      SELECT 1 AS hub, 0 AS hops, ARRAY[1] AS path
+      UNION ALL
+      SELECT r.to_hub, w.hops + 1, w.path || r.to_hub FROM walk w JOIN routes r ON r.from_hub = w.hub WHERE r.to_hub <> ALL (w.path)
+    ), fh AS (SELECT DISTINCT hub, hops FROM walk)
+    SELECT hops, count(*) AS new_hubs, sum(count(*)) OVER (ORDER BY hops) AS reachable_so_far FROM fh WHERE hub <> 1 GROUP BY hops ORDER BY hops
+  right: |
+    WITH RECURSIVE walk AS (
+      SELECT 1 AS hub, 0 AS hops, ARRAY[1] AS path
+      UNION ALL
+      SELECT r.to_hub, w.hops + 1, w.path || r.to_hub FROM walk w JOIN routes r ON r.from_hub = w.hub WHERE NOT (r.to_hub = ANY (w.path))
+    ), best AS (SELECT DISTINCT ON (hub) hub, hops FROM walk WHERE hub <> 1 ORDER BY hub, hops)
+    SELECT hops, count(*)::int AS new_hubs, (sum(count(*)) OVER (ORDER BY hops))::int AS reachable_so_far FROM best GROUP BY hops ORDER BY hops
+mk-040:
+  wrong: |
+    SELECT h.id AS hub_id, h.name AS hub_name, count(d.id) AS experienced_drivers
+    FROM hubs h LEFT JOIN drivers d ON d.hub_id = h.id
+    WHERE d.hired_on < '2022-01-01'
+    GROUP BY h.id, h.name ORDER BY h.id
+  right: |
+    SELECT h.id AS hub_id, h.name AS hub_name,
+           (SELECT count(*) FROM drivers d WHERE d.hub_id = h.id AND d.hired_on < '2022-01-01') AS experienced_drivers
+    FROM hubs h ORDER BY h.id
+mk-041:
+  wrong: |
+    SELECT driver_id, id AS trip_id, km FROM (
+      SELECT driver_id, id, km, row_number() OVER (PARTITION BY driver_id ORDER BY km DESC, id) AS rn FROM trips WHERE status = 'done'
+    ) t WHERE rn = 1 ORDER BY driver_id, id
+  right: |
+    SELECT t.driver_id, t.id AS trip_id, t.km
+    FROM trips t
+    WHERE t.status = 'done' AND t.km = (SELECT max(x.km) FROM trips x WHERE x.driver_id = t.driver_id AND x.status = 'done')
+    ORDER BY t.driver_id, t.id
+mk-042:
+  wrong: |
+    WITH r AS (SELECT driver_id, id, started_at, sum(km) OVER (PARTITION BY driver_id ORDER BY started_at, id) AS total_km FROM trips),
+    f AS (SELECT *, row_number() OVER (PARTITION BY driver_id ORDER BY started_at, id) AS rn FROM r WHERE total_km >= 8000)
+    SELECT driver_id, id AS trip_id, started_at, total_km FROM f WHERE rn = 1 ORDER BY driver_id
+  right: |
+    SELECT DISTINCT ON (driver_id) driver_id, id AS trip_id, started_at, total_km
+    FROM (SELECT driver_id, id, started_at, sum(km) OVER (PARTITION BY driver_id ORDER BY started_at, id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS total_km
+          FROM trips WHERE status IN ('done', 'delayed')) x
+    WHERE total_km >= 8000
+    ORDER BY driver_id, started_at, id
+mk-043:
+  wrong: |
+    SELECT r.from_hub, r.to_hub, r.km FROM routes r
+    WHERE NOT EXISTS (SELECT 1 FROM routes b WHERE b.from_hub = r.to_hub) ORDER BY r.from_hub, r.to_hub
+  right: |
+    SELECT a.from_hub, a.to_hub, a.km FROM routes a LEFT JOIN routes b ON b.from_hub = a.to_hub AND b.to_hub = a.from_hub
+    WHERE b.from_hub IS NULL ORDER BY a.from_hub, a.to_hub
+mk-044:
+  wrong: |
+    WITH RECURSIVE tree AS (
+      SELECT id AS state_id, id AS region_id FROM regions WHERE parent_id IN (SELECT id FROM regions WHERE parent_id = 1)
+      UNION ALL SELECT t.state_id, r.id FROM regions r JOIN tree t ON r.parent_id = t.region_id
+    )
+    SELECT s.id AS state_id, s.name AS state_name, count(h.id) AS pickup_hubs
+    FROM regions s JOIN tree t ON t.state_id = s.id LEFT JOIN hubs h ON h.region_id = t.region_id
+    WHERE h.kind = 'pickup'
+    GROUP BY s.id, s.name ORDER BY s.id
+  right: |
+    WITH RECURSIVE tree AS (
+      SELECT id AS state_id, id AS region_id FROM regions WHERE parent_id IN (SELECT id FROM regions WHERE parent_id = 1)
+      UNION ALL SELECT t.state_id, r.id FROM regions r JOIN tree t ON r.parent_id = t.region_id
+    )
+    SELECT s.id AS state_id, s.name AS state_name,
+           (SELECT count(*) FROM tree t JOIN hubs h ON h.region_id = t.region_id AND h.kind = 'pickup' WHERE t.state_id = s.id) AS pickup_hubs
+    FROM regions s WHERE s.id IN (SELECT state_id FROM tree) ORDER BY s.id
+mk-045:
+  wrong: |
+    WITH RECURSIVE walk AS (
+      SELECT 1 AS hub, 0 AS km, 0 AS hops
+      UNION ALL
+      SELECT r.to_hub, w.km + r.km, w.hops + 1 FROM walk w JOIN routes r ON r.from_hub = w.hub WHERE w.hops < 4
+    )
+    SELECT hub AS hub_id, count(*) AS route_count, min(km) AS cheapest_km FROM walk WHERE hub <> 1 GROUP BY hub HAVING count(*) >= 5 ORDER BY route_count DESC, hub
+  right: |
+    WITH RECURSIVE walk AS (
+      SELECT 1 AS hub, 0 AS km, ARRAY[1] AS path
+      UNION ALL
+      SELECT r.to_hub, w.km + r.km, w.path || r.to_hub FROM walk w JOIN routes r ON r.from_hub = w.hub WHERE NOT r.to_hub = ANY (w.path)
+    )
+    SELECT w.hub AS hub_id, count(*) AS route_count, min(w.km) AS cheapest_km FROM walk w GROUP BY w.hub HAVING w.hub <> 1 AND count(*) >= 5 ORDER BY 2 DESC, 1
+mk-046:
+  wrong: |
+    SELECT r.type AS room_type, sum(b.check_out - b.check_in + 1) AS nights, sum((b.check_out - b.check_in + 1) * b.nightly_rate) AS revenue
+    FROM bookings b JOIN rooms r ON r.id = b.room_id
+    WHERE b.status = 'confirmed' AND b.check_in >= '2024-06-01' AND b.check_in < '2024-07-01' GROUP BY r.type ORDER BY r.type
+  right: |
+    SELECT r.type AS room_type, sum(b.check_out - b.check_in) AS nights, sum(b.nightly_rate * (b.check_out - b.check_in)) AS revenue
+    FROM rooms r JOIN bookings b ON b.room_id = r.id
+    WHERE b.status = 'confirmed' AND date_trunc('month', b.check_in) = '2024-06-01'::date
+    GROUP BY 1 ORDER BY 1
+mk-047:
+  wrong: |
+    SELECT room_type, valid_to AS gap_from, next_from AS gap_to FROM (
+      SELECT room_type, valid_to, lead(valid_from) OVER (PARTITION BY room_type ORDER BY valid_from) AS next_from FROM rate_cards) c
+    WHERE next_from > valid_to ORDER BY room_type, gap_from
+  right: |
+    SELECT a.room_type, a.valid_to + 1 AS gap_from, b.valid_from - 1 AS gap_to
+    FROM rate_cards a JOIN rate_cards b ON b.room_type = a.room_type AND b.valid_from > a.valid_to
+    WHERE NOT EXISTS (SELECT 1 FROM rate_cards m WHERE m.room_type = a.room_type AND m.valid_from > a.valid_from AND m.valid_from < b.valid_from)
+      AND b.valid_from > a.valid_to + 1
+    ORDER BY 1, 2
+mk-048:
+  wrong: |
+    SELECT b.room_id, count(*) AS bookings, sum(b.check_out - b.check_in) AS uncovered_nights
+    FROM bookings b JOIN rooms r ON r.id = b.room_id
+    WHERE b.status = 'confirmed' AND r.type = 'suite' AND b.check_in <= '2024-09-14' AND b.check_out > '2024-09-01'
+    GROUP BY b.room_id ORDER BY b.room_id
+  right: |
+    WITH nights AS (
+      SELECT b.id, b.room_id, r.type, (b.check_in + g)::date AS d
+      FROM bookings b JOIN rooms r ON r.id = b.room_id, generate_series(0, 400) AS g
+      WHERE b.status = 'confirmed' AND b.check_in + g < b.check_out AND b.check_in + g <= DATE '2024-12-31'
+    )
+    SELECT n.room_id, count(DISTINCT n.id) AS bookings, count(*) AS uncovered_nights
+    FROM nights n LEFT JOIN rate_cards c ON c.room_type = n.type AND n.d BETWEEN c.valid_from AND c.valid_to
+    WHERE c.id IS NULL GROUP BY n.room_id ORDER BY n.room_id
+mk-049:
+  wrong: |
+    SELECT DISTINCT g.id AS guest_id, g.name, g.loyalty FROM guests g JOIN bookings b ON b.guest_id = g.id WHERE b.status <> 'confirmed' ORDER BY g.id
+  right: |
+    SELECT g.id AS guest_id, g.name, g.loyalty FROM guests g LEFT JOIN bookings b ON b.guest_id = g.id AND b.status = 'confirmed'
+    WHERE b.id IS NULL ORDER BY g.id
+mk-050:
+  wrong: |
+    SELECT b.id AS booking_id, m.id AS maintenance_id, b.room_id FROM bookings b JOIN maintenance m ON m.room_id = b.room_id AND m.start_date < b.check_out AND b.check_in < m.end_date
+    WHERE b.status = 'confirmed' ORDER BY b.id, m.id
+  right: |
+    SELECT b.id AS booking_id, m.id AS maintenance_id, b.room_id FROM bookings b JOIN maintenance m ON m.room_id = b.room_id
+    WHERE b.status = 'confirmed' AND daterange(b.check_in, b.check_out, '[)') && daterange(m.start_date, m.end_date, '[]')
+    ORDER BY 1, 2
+mk-051:
+  wrong: |
+    SELECT date_trunc('month', b.check_in)::date AS month, count(*) AS check_ins,
+           count(*) FILTER (WHERE EXISTS (SELECT 1 FROM bookings a WHERE a.room_id = b.room_id AND a.check_out = b.check_in)) AS handovers,
+           round(100.0 * count(*) FILTER (WHERE EXISTS (SELECT 1 FROM bookings a WHERE a.room_id = b.room_id AND a.check_out = b.check_in)) / count(*), 2) AS handover_pct
+    FROM bookings b WHERE b.check_in >= '2024-01-01' AND b.check_in < '2025-01-01' GROUP BY 1 ORDER BY 1
+  right: |
+    WITH x AS (
+      SELECT b.id, date_trunc('month', b.check_in)::date AS month, (a.id IS NOT NULL) AS h
+      FROM bookings b LEFT JOIN LATERAL (SELECT a.id FROM bookings a WHERE a.room_id = b.room_id AND a.status = 'confirmed' AND a.check_out = b.check_in LIMIT 1) a ON true
+      WHERE b.status = 'confirmed' AND b.check_in >= '2024-01-01' AND b.check_in < '2025-01-01'
+    )
+    SELECT month, count(*) AS check_ins, sum(h::int) AS handovers, round(100.0 * sum(h::int) / count(*), 2) AS handover_pct FROM x GROUP BY month ORDER BY month
+mk-052:
+  wrong: |
+    SELECT r.type AS room_type, count(DISTINCT r.id) AS total_rooms, count(DISTINCT r.id) FILTER (WHERE b.id IS NOT NULL) AS occupied_rooms,
+           round(100.0 * count(DISTINCT r.id) FILTER (WHERE b.id IS NOT NULL) / count(DISTINCT r.id), 2) AS occupancy_pct
+    FROM rooms r LEFT JOIN bookings b ON b.room_id = r.id AND b.status = 'confirmed' AND b.check_in <= DATE '2024-07-15' AND b.check_out >= DATE '2024-07-15'
+    GROUP BY r.type ORDER BY r.type
+  right: |
+    SELECT r.type AS room_type, count(*) AS total_rooms,
+           sum((EXISTS (SELECT 1 FROM bookings b WHERE b.room_id = r.id AND b.status = 'confirmed' AND DATE '2024-07-15' >= b.check_in AND DATE '2024-07-15' < b.check_out))::int) AS occupied_rooms,
+           round(100.0 * sum((EXISTS (SELECT 1 FROM bookings b WHERE b.room_id = r.id AND b.status = 'confirmed' AND DATE '2024-07-15' >= b.check_in AND DATE '2024-07-15' < b.check_out))::int) / count(*), 2) AS occupancy_pct
+    FROM rooms r GROUP BY r.type ORDER BY r.type
+mk-053:
+  wrong: |
+    WITH s AS (SELECT b.guest_id, b.check_in, b.check_out, row_number() OVER (PARTITION BY b.guest_id ORDER BY b.check_in, b.id) AS rn
+               FROM bookings b JOIN guests g ON g.id = b.guest_id WHERE g.loyalty = 'gold')
+    SELECT a.guest_id, a.check_out AS first_check_out, b.check_in AS second_check_in, b.check_in - a.check_out AS days_between
+    FROM s a JOIN s b ON b.guest_id = a.guest_id AND a.rn = 1 AND b.rn = 2 ORDER BY a.guest_id
+  right: |
+    SELECT guest_id, check_out AS first_check_out, nxt AS second_check_in, nxt - check_out AS days_between
+    FROM (SELECT b.guest_id, b.check_out, lead(b.check_in) OVER w AS nxt, row_number() OVER w AS rn
+          FROM bookings b JOIN guests g ON g.id = b.guest_id
+          WHERE g.loyalty = 'gold' AND b.status = 'confirmed'
+          WINDOW w AS (PARTITION BY b.guest_id ORDER BY b.check_in, b.id)) x
+    WHERE rn = 1 AND nxt IS NOT NULL ORDER BY guest_id
+mk-054:
+  wrong: |
+    SELECT r.id AS room_id,
+           count(*) FILTER (WHERE NOT EXISTS (SELECT 1 FROM bookings b WHERE b.room_id = r.id AND b.status = 'confirmed' AND b.check_in <= n.d AND n.d < b.check_out)
+                              AND NOT EXISTS (SELECT 1 FROM maintenance m WHERE m.room_id = r.id AND m.start_date <= n.d AND n.d < m.end_date)) AS free_nights
+    FROM rooms r CROSS JOIN generate_series(DATE '2024-09-01', DATE '2024-09-30', interval '1 day') AS n(d) GROUP BY r.id ORDER BY r.id
+  right: |
+    WITH cal AS (SELECT r.id AS room_id, d::date AS night FROM rooms r, generate_series(DATE '2024-09-01', DATE '2024-09-30', interval '1 day') d),
+    busy AS (
+      SELECT c.room_id, c.night FROM cal c JOIN bookings b ON b.room_id = c.room_id AND b.status = 'confirmed' AND c.night >= b.check_in AND c.night < b.check_out
+      UNION
+      SELECT c.room_id, c.night FROM cal c JOIN maintenance m ON m.room_id = c.room_id AND c.night BETWEEN m.start_date AND m.end_date
+    )
+    SELECT c.room_id, count(*) - count(x.night) AS free_nights FROM cal c LEFT JOIN busy x ON x.room_id = c.room_id AND x.night = c.night GROUP BY c.room_id ORDER BY c.room_id
+mk-055:
+  wrong: |
+    SELECT c.country, count(*) AS customers FROM customers c WHERE NOT EXISTS (SELECT 1 FROM orders o WHERE o.customer_id = c.id) GROUP BY c.country ORDER BY c.country
+  right: |
+    SELECT c.country, count(*) AS customers FROM customers c LEFT JOIN orders o ON o.customer_id = c.id AND o.status <> 'cancelled' WHERE o.id IS NULL GROUP BY c.country ORDER BY c.country
+mk-056:
+  wrong: |
+    WITH o AS (SELECT DISTINCT o.customer_id, date_trunc('month', o.order_date)::date AS m FROM orders o WHERE o.status <> 'cancelled' AND o.order_date >= '2023-01-01' AND o.order_date < '2023-07-01')
+    SELECT o.m AS month,
+           count(*) FILTER (WHERE date_trunc('month', c.signup_date)::date = o.m) AS new_customers,
+           count(*) FILTER (WHERE date_trunc('month', c.signup_date)::date < o.m) AS returning_customers
+    FROM o JOIN customers c ON c.id = o.customer_id GROUP BY o.m ORDER BY o.m
+  right: |
+    WITH ord AS (SELECT customer_id, order_date, date_trunc('month', order_date)::date AS m, min(date_trunc('month', order_date)::date) OVER (PARTITION BY customer_id) AS first_m FROM orders WHERE status <> 'cancelled')
+    SELECT m AS month, count(DISTINCT customer_id) FILTER (WHERE m = first_m) AS new_customers, count(DISTINCT customer_id) FILTER (WHERE m > first_m) AS returning_customers
+    FROM ord WHERE order_date >= '2023-01-01' AND order_date < '2023-07-01' GROUP BY m ORDER BY m
+mk-057:
+  wrong: |
+    WITH g AS (SELECT customer_id, order_date, status, order_date - lag(order_date) OVER (PARTITION BY customer_id ORDER BY order_date, id) AS gap FROM orders)
+    SELECT customer_id, count(*) AS quick_reorders, max(order_date) AS last_quick_reorder FROM g WHERE gap <= 14 GROUP BY customer_id HAVING count(*) >= 3 ORDER BY quick_reorders DESC, customer_id
+  right: |
+    SELECT o.customer_id, count(*) AS quick_reorders, max(o.order_date) AS last_quick_reorder
+    FROM (SELECT customer_id, order_date, lag(order_date) OVER w AS prev FROM orders WHERE status <> 'cancelled' WINDOW w AS (PARTITION BY customer_id ORDER BY order_date, id)) o
+    WHERE o.prev IS NOT NULL AND o.order_date <= o.prev + 14
+    GROUP BY o.customer_id HAVING count(*) >= 3 ORDER BY 2 DESC, 1
+mk-058:
+  wrong: |
+    SELECT p.id AS product_id, p.name, count(r.id) AS reviews, count(r.body) AS written_reviews, round(avg(r.rating), 2) AS avg_rating
+    FROM products p JOIN reviews r ON r.product_id = p.id WHERE p.category_id IN (3, 4, 5) GROUP BY p.id, p.name ORDER BY p.id
+  right: |
+    SELECT p.id AS product_id, p.name,
+           (SELECT count(*) FROM reviews r WHERE r.product_id = p.id) AS reviews,
+           (SELECT count(*) FROM reviews r WHERE r.product_id = p.id AND r.body IS NOT NULL) AS written_reviews,
+           (SELECT round(avg(rating), 2) FROM reviews r WHERE r.product_id = p.id) AS avg_rating
+    FROM products p WHERE p.category_id IN (3, 4, 5) ORDER BY p.id
+mk-059:
+  wrong: |
+    SELECT top.name AS category, coalesce(sum(i.quantity * i.unit_price) FILTER (WHERE o.status IN ('shipped', 'delivered')), 0) AS revenue
+    FROM categories top LEFT JOIN products p ON p.category_id = top.id LEFT JOIN order_items i ON i.product_id = p.id LEFT JOIN orders o ON o.id = i.order_id
+    WHERE top.parent_id IS NULL GROUP BY top.id, top.name ORDER BY revenue DESC, top.name
+  right: |
+    WITH RECURSIVE up AS (
+      SELECT id AS leaf, id AS cur, parent_id FROM categories
+      UNION ALL
+      SELECT u.leaf, c.id, c.parent_id FROM up u JOIN categories c ON c.id = u.parent_id
+    ), root AS (SELECT leaf, cur AS top_id FROM up WHERE parent_id IS NULL)
+    SELECT c.name AS category, coalesce(sum(i.quantity * i.unit_price), 0) AS revenue
+    FROM categories c
+    JOIN root r ON r.top_id = c.id
+    LEFT JOIN products p ON p.category_id = r.leaf
+    LEFT JOIN (SELECT i.* FROM order_items i JOIN orders o ON o.id = i.order_id WHERE o.status IN ('shipped', 'delivered')) i ON i.product_id = p.id
+    GROUP BY c.id, c.name ORDER BY revenue DESC, c.name
+mk-060:
+  wrong: |
+    WITH RECURSIVE cat AS (SELECT id FROM categories WHERE id = 1 UNION ALL SELECT c.id FROM categories c JOIN cat ON c.parent_id = cat.id),
+    rev AS (SELECT i.product_id, sum(i.quantity * i.unit_price) FILTER (WHERE o.order_date < '2024-01-01') AS rev_2023, sum(i.quantity * i.unit_price) FILTER (WHERE o.order_date >= '2024-01-01') AS rev_2024
+            FROM order_items i JOIN orders o ON o.id = i.order_id WHERE o.status <> 'cancelled' GROUP BY i.product_id)
+    SELECT p.id AS product_id, p.name, r.rev_2023, coalesce(r.rev_2024, 0) AS rev_2024, round(100.0 * (coalesce(r.rev_2024, 0) - r.rev_2023) / r.rev_2023, 2) AS change_pct
+    FROM products p JOIN cat ON cat.id = p.category_id JOIN rev r ON r.product_id = p.id WHERE r.rev_2023 > 0 AND coalesce(r.rev_2024, 0) < 0.92 * r.rev_2023 ORDER BY change_pct, p.id
+  right: |
+    WITH RECURSIVE cat(id) AS (VALUES (1) UNION ALL SELECT c.id FROM categories c JOIN cat ON c.parent_id = cat.id),
+    y AS (
+      SELECT i.product_id, extract(year FROM o.order_date)::int AS yr, sum(i.quantity * i.unit_price) AS rev
+      FROM order_items i JOIN orders o ON o.id = i.order_id WHERE o.status IN ('placed', 'shipped', 'delivered') GROUP BY 1, 2
+    )
+    SELECT p.id AS product_id, p.name, a.rev AS rev_2023, coalesce(b.rev, 0) AS rev_2024,
+           round(100.0 * (coalesce(b.rev, 0) - a.rev) / a.rev, 2) AS change_pct
+    FROM products p JOIN cat ON cat.id = p.category_id
+    JOIN y a ON a.product_id = p.id AND a.yr = 2023
+    LEFT JOIN y b ON b.product_id = p.id AND b.yr = 2024
+    WHERE coalesce(b.rev, 0) < 0.92 * a.rev
+    ORDER BY change_pct, p.id
+mk-061:
+  wrong: |
+    SELECT a.id AS account_id, a.customer_id, count(*) AS tx_count, max(t.tx_date) AS last_activity FROM accounts a JOIN transactions t ON t.account_id = a.id
+    WHERE a.status = 'closed' AND t.tx_date >= '2024-10-01' GROUP BY a.id, a.customer_id ORDER BY a.id
+  right: |
+    SELECT a.id AS account_id, a.customer_id, count(t.id) AS tx_count, max(t.tx_date) AS last_activity FROM accounts a JOIN transactions t ON t.account_id = a.id AND t.tx_date >= DATE '2024-10-01'
+    WHERE a.status = 'closed' AND t.kind NOT IN ('fee', 'interest') GROUP BY a.id, a.customer_id ORDER BY a.id
+mk-062:
+  wrong: |
+    SELECT (date_trunc('month', tx_date) + interval '1 month' - interval '1 day')::date AS month_end, sum(sum(amount)) OVER (ORDER BY date_trunc('month', tx_date)) AS balance
+    FROM transactions WHERE account_id = 20 GROUP BY date_trunc('month', tx_date) ORDER BY month_end
+  right: |
+    WITH m AS (SELECT date_trunc('month', tx_date)::date AS mon, sum(amount) AS amt FROM transactions WHERE account_id = 20 GROUP BY 1)
+    SELECT (c.d + interval '1 month' - interval '1 day')::date AS month_end, sum(coalesce(m.amt, 0)) OVER (ORDER BY c.d) AS balance
+    FROM generate_series(DATE '2024-01-01', DATE '2024-12-01', interval '1 month') AS c(d) LEFT JOIN m ON m.mon = c.d::date ORDER BY 1
+mk-063:
+  wrong: |
+    WITH m AS (SELECT account_id, date_trunc('month', tx_date)::date AS mon FROM transactions WHERE kind = 'purchase'),
+    g AS (SELECT account_id, mon, mon - (INTERVAL '1 month' * row_number() OVER (PARTITION BY account_id ORDER BY mon)) AS grp FROM m)
+    SELECT account_id, min(mon) AS run_start, max(mon) AS run_end, count(*) AS months FROM g GROUP BY account_id, grp HAVING count(*) >= 3 ORDER BY account_id, run_start
+  right: |
+    WITH m AS (SELECT account_id, mon FROM (SELECT account_id, date_trunc('month', tx_date)::date AS mon FROM transactions WHERE kind = 'purchase') x GROUP BY account_id, mon),
+    g AS (SELECT account_id, mon, (extract(year FROM mon) * 12 + extract(month FROM mon))::int - dense_rank() OVER (PARTITION BY account_id ORDER BY mon) AS grp FROM m)
+    SELECT account_id, min(mon) AS run_start, max(mon) AS run_end, count(*) AS months FROM g GROUP BY account_id, grp HAVING count(*) >= 3 ORDER BY 1, 2
+mk-064:
+  wrong: |
+    SELECT c.segment, count(l.id) AS active_loans, sum(l.principal) AS total_principal
+    FROM customers c JOIN accounts a ON a.customer_id = c.id JOIN loans l ON l.customer_id = c.id
+    WHERE l.status = 'active' GROUP BY c.segment ORDER BY c.segment
+  right: |
+    SELECT c.segment, count(*) AS active_loans, sum(l.principal) AS total_principal FROM customers c, loans l WHERE l.customer_id = c.id AND l.status = 'active' GROUP BY 1 ORDER BY 1
+mk-065:
+  wrong: |
+    SELECT id AS loan_id, customer_id, start_date + term_months * 30 AS end_date, DATE '2024-06-30' - (start_date + term_months * 30) AS days_past_end
+    FROM loans WHERE status = 'active' AND start_date + term_months * 30 <= DATE '2024-06-30' ORDER BY days_past_end DESC, loan_id
+  right: |
+    WITH x AS (SELECT id, customer_id, status, (start_date + make_interval(months => term_months))::date AS e FROM loans)
+    SELECT id AS loan_id, customer_id, e AS end_date, DATE '2024-06-30' - e AS days_past_end FROM x WHERE status = 'active' AND e <= DATE '2024-06-30' ORDER BY 4 DESC, 1
+mk-066:
+  wrong: |
+    WITH RECURSIVE l AS (SELECT principal AS p, annual_rate / 1200.0 AS r, term_months AS n FROM loans WHERE id = 3),
+    pm AS (SELECT p, r, round(p * r / (1 - power(1 + r, -n)), 2) AS pmt FROM l),
+    s AS (SELECT 1 AS month_no, round(p * r, 2) AS interest, pmt - round(p * r, 2) AS principal_paid, p - (pmt - round(p * r, 2)) AS balance_after, p, r, pmt FROM pm
+          UNION ALL SELECT month_no + 1, round(p * r, 2), pmt - round(p * r, 2), balance_after - (pmt - round(p * r, 2)), p, r, pmt FROM s WHERE month_no < 12)
+    SELECT month_no, interest, principal_paid, balance_after FROM s ORDER BY month_no
+  right: |
+    WITH RECURSIVE pm AS (
+      SELECT principal::numeric AS p0, annual_rate / 1200.0 AS r, round(principal * (annual_rate / 1200.0) / (1 - power(1 + annual_rate / 1200.0, -term_months)), 2) AS pmt FROM loans WHERE id = 3
+    ), s(month_no, opening, interest) AS (
+      SELECT 1, p0, round(p0 * r, 2) FROM pm
+      UNION ALL
+      SELECT s.month_no + 1, s.opening - (pm.pmt - s.interest), round((s.opening - (pm.pmt - s.interest)) * pm.r, 2) FROM s, pm WHERE s.month_no < 12
+    )
+    SELECT s.month_no, s.interest, pm.pmt - s.interest AS principal_paid, s.opening - (pm.pmt - s.interest) AS balance_after FROM s, pm ORDER BY s.month_no
+mk-067:
+  wrong: |
+    SELECT plan, count(*) FILTER (WHERE tags = '{}') AS untagged_users, count(*) AS users FROM users GROUP BY plan ORDER BY plan
+  right: |
+    SELECT plan, sum((coalesce(array_length(tags, 1), 0) = 0)::int) AS untagged_users, count(*) AS users FROM users GROUP BY plan ORDER BY plan
+mk-068:
+  wrong: |
+    SELECT date_trunc('week', u.signup_at AT TIME ZONE 'UTC')::date AS week_start, count(DISTINCT u.id) AS signups, count(e.id) AS activated_7d,
+           round(100.0 * count(e.id) / count(DISTINCT u.id), 2) AS activation_pct
+    FROM users u LEFT JOIN events e ON e.user_id = u.id AND e.name = 'activated' AND e.ts >= u.signup_at AND e.ts < u.signup_at + interval '7 days'
+    GROUP BY 1 ORDER BY 1
+  right: |
+    WITH a AS (SELECT DISTINCT user_id FROM events e JOIN users u ON u.id = e.user_id WHERE e.name = 'activated' AND e.ts >= u.signup_at AND e.ts < u.signup_at + interval '7 days')
+    SELECT date_trunc('week', u.signup_at AT TIME ZONE 'UTC')::date AS week_start, count(*) AS signups, count(a.user_id) AS activated_7d,
+           round(100.0 * count(a.user_id) / count(*), 2) AS activation_pct
+    FROM users u LEFT JOIN a ON a.user_id = u.id GROUP BY 1 ORDER BY 1
+mk-069:
+  wrong: |
+    WITH g AS (SELECT user_id, id, ts, lag(ts) OVER (PARTITION BY user_id ORDER BY ts, id) AS prev FROM events),
+    s AS (SELECT user_id, ts, sum(CASE WHEN prev IS NULL OR ts - prev >= interval '30 minutes' THEN 1 ELSE 0 END) OVER (PARTITION BY user_id ORDER BY ts, id) AS sn FROM g),
+    x AS (SELECT user_id, sn, max(ts) - min(ts) AS len FROM s GROUP BY user_id, sn)
+    SELECT u.plan, count(*) AS sessions, round(avg(extract(epoch FROM x.len)) / 60, 2) AS avg_minutes FROM x JOIN users u ON u.id = x.user_id GROUP BY u.plan ORDER BY u.plan
+  right: |
+    WITH g AS (SELECT user_id, ts, id, CASE WHEN lag(ts) OVER w IS NULL OR extract(epoch FROM ts - lag(ts) OVER w) > 1800 THEN 1 ELSE 0 END AS st FROM events WINDOW w AS (PARTITION BY user_id ORDER BY ts, id)),
+    s AS (SELECT user_id, ts, sum(st) OVER (PARTITION BY user_id ORDER BY ts, id) AS sn FROM g)
+    SELECT u.plan, count(*) AS sessions, round(avg(len) / 60, 2) AS avg_minutes
+    FROM (SELECT user_id, sn, extract(epoch FROM max(ts) - min(ts)) AS len FROM s GROUP BY user_id, sn) x JOIN users u ON u.id = x.user_id GROUP BY u.plan ORDER BY u.plan
+mk-070:
+  wrong: |
+    SELECT currency, count(*) AS purchases, count(user_id) AS buyers, sum(amount) AS total_amount FROM purchases GROUP BY currency ORDER BY currency
+  right: |
+    SELECT p.currency, count(*) AS purchases, (SELECT count(DISTINCT q.user_id) FROM purchases q WHERE q.currency = p.currency) AS buyers, sum(p.amount) AS total_amount
+    FROM purchases p GROUP BY p.currency ORDER BY p.currency
+mk-071:
+  wrong: |
+    SELECT date_trunc('month', ts AT TIME ZONE 'UTC')::date AS month, count(*) AS purchases, count(*) FILTER (WHERE props ? 'coupon') AS coupon_purchases,
+           round(100.0 * count(*) FILTER (WHERE props ? 'coupon') / count(*), 2) AS coupon_pct
+    FROM events WHERE name = 'purchase' GROUP BY 1 ORDER BY 1
+  right: |
+    SELECT date_trunc('month', ts AT TIME ZONE 'UTC')::date AS month, count(*) AS purchases,
+           sum((jsonb_typeof(props -> 'coupon') = 'string')::int) AS coupon_purchases,
+           round(100.0 * sum((jsonb_typeof(props -> 'coupon') = 'string')::int) / count(*), 2) AS coupon_pct
+    FROM events WHERE name = 'purchase' GROUP BY 1 ORDER BY 1
+mk-072:
+  wrong: |
+    WITH d AS (SELECT DISTINCT e.user_id, (e.ts AT TIME ZONE 'UTC')::date AS day FROM events e JOIN users u ON u.id = e.user_id WHERE u.tz = 'Pacific/Auckland'),
+    g AS (SELECT user_id, day, day - (row_number() OVER (PARTITION BY user_id ORDER BY day))::int AS grp FROM d),
+    s AS (SELECT user_id, count(*) AS streak FROM g GROUP BY user_id, grp)
+    SELECT user_id, max(streak) AS longest_streak FROM s GROUP BY user_id HAVING max(streak) >= 6 ORDER BY longest_streak DESC, user_id
+  right: |
+    WITH d AS (SELECT e.user_id, (e.ts AT TIME ZONE u.tz)::date AS day FROM events e JOIN users u ON u.id = e.user_id WHERE u.tz = 'Pacific/Auckland' GROUP BY 1, 2),
+    g AS (SELECT user_id, day, day - dense_rank() OVER (PARTITION BY user_id ORDER BY day)::int AS grp FROM d)
+    SELECT user_id, max(c) AS longest_streak FROM (SELECT user_id, grp, count(*) AS c FROM g GROUP BY user_id, grp) t GROUP BY user_id HAVING max(c) >= 6 ORDER BY 2 DESC, 1
+mk-073:
+  wrong: |
+    SELECT d.id AS dept_id, d.name AS department, count(e.id) AS headcount, round(avg(e.salary + e.commission), 2) AS avg_total_comp
+    FROM departments d LEFT JOIN employees e ON e.dept_id = d.id GROUP BY d.id, d.name ORDER BY d.id
+  right: |
+    SELECT d.id AS dept_id, d.name AS department, (SELECT count(*) FROM employees e WHERE e.dept_id = d.id) AS headcount,
+           (SELECT round(sum(e.salary + coalesce(e.commission, 0)) / count(*), 2) FROM employees e WHERE e.dept_id = d.id) AS avg_total_comp
+    FROM departments d ORDER BY d.id
+mk-074:
+  wrong: |
+    SELECT d.id AS dept_id, d.name AS department, count(*) AS headcount, count(*) FILTER (WHERE a.emp_id IS NOT NULL) AS staffed,
+           round(100.0 * count(*) FILTER (WHERE a.emp_id IS NULL) / count(*), 2) AS bench_pct
+    FROM employees e JOIN departments d ON d.id = e.dept_id LEFT JOIN project_assignments a ON a.emp_id = e.id GROUP BY d.id, d.name ORDER BY d.id
+  right: |
+    SELECT d.id AS dept_id, d.name AS department, count(*) AS headcount, count(*) FILTER (WHERE s.emp_id IS NOT NULL) AS staffed,
+           round(100.0 * count(*) FILTER (WHERE s.emp_id IS NULL) / count(*), 2) AS bench_pct
+    FROM employees e JOIN departments d ON d.id = e.dept_id LEFT JOIN (SELECT DISTINCT emp_id FROM project_assignments) s ON s.emp_id = e.id
+    GROUP BY d.id, d.name ORDER BY d.id
+mk-075:
+  wrong: |
+    SELECT v.id AS vp_id, v.name, count(e.id) AS org_size,
+           count(e.id) FILTER (WHERE NOT EXISTS (SELECT 1 FROM project_assignments a WHERE a.emp_id = e.id)) AS unstaffed,
+           coalesce((SELECT sum(a.hours) FROM project_assignments a JOIN employees x ON x.id = a.emp_id WHERE x.manager_id = v.id), 0) AS total_hours
+    FROM employees v LEFT JOIN employees e ON e.manager_id = v.id WHERE v.manager_id = 1 GROUP BY v.id, v.name ORDER BY v.id
+  right: |
+    WITH RECURSIVE up AS (
+      SELECT id AS emp, manager_id AS boss, id AS cur FROM employees WHERE manager_id IS NOT NULL
+      UNION ALL
+      SELECT u.emp, e.manager_id, e.id FROM up u JOIN employees e ON e.id = u.boss WHERE u.boss IS NOT NULL
+    ), vp AS (SELECT emp, cur AS vp_id FROM up WHERE boss = 1 AND emp <> cur)
+    SELECT v.id AS vp_id, v.name, count(vp.emp) AS org_size,
+           count(vp.emp) FILTER (WHERE NOT EXISTS (SELECT 1 FROM project_assignments a WHERE a.emp_id = vp.emp)) AS unstaffed,
+           coalesce(sum((SELECT sum(a.hours) FROM project_assignments a WHERE a.emp_id = vp.emp)), 0) AS total_hours
+    FROM employees v LEFT JOIN vp ON vp.vp_id = v.id WHERE v.manager_id = 1 GROUP BY v.id, v.name ORDER BY v.id

@@ -1,0 +1,30 @@
+id: mk-024
+title: Students taking every Arts course
+topic: mock-interviews
+tags: [relational-division, having, exists, left-join]
+difficulty: hard
+dataset: school
+prompt: |
+  The arts coordinator wants to invite the students who follow the **complete Arts programme**: every course taught by a teacher whose `subject` is 'Arts'. A student qualifies when he or she has a **non-dropped** enrolment (`active` or `completed`) in **every** one of those courses. Do not hard-code the course ids or their number.
+
+  Return `student_id`, `name`, `grade` and `avg_midterm` (the average of the student's midterm scores in those Arts courses, rounded to 2 decimals), ordered by `avg_midterm` descending, then `student_id`.
+solution_sql: |
+  WITH arts AS (
+    SELECT c.id
+    FROM courses c
+    JOIN teachers t ON t.id = c.teacher_id
+    WHERE t.subject = 'Arts')
+  SELECT s.id AS student_id, s.name, s.grade,
+         round(avg(m.score), 2) AS avg_midterm
+  FROM enrollments e
+  JOIN arts a ON a.id = e.course_id
+  JOIN students s ON s.id = e.student_id
+  LEFT JOIN scores m ON m.student_id = e.student_id AND m.course_id = e.course_id AND m.exam = 'midterm'
+  WHERE e.status <> 'dropped'
+  GROUP BY s.id, s.name, s.grade
+  HAVING count(*) = (SELECT count(*) FROM arts)
+  ORDER BY avg_midterm DESC, s.id
+compare: {order_matters: true}
+hints: ['''Every'' is relational division: compare the number of matching courses with the total number of Arts courses.', 'Which enrolments count? Put that condition before the counting.']
+trap: If dropped enrolments are counted, 36 students seem to follow the full programme although 14 of them dropped at least one of the Arts courses; the right answer has 22 students. The status filter must be applied before comparing the number of courses with the total (`HAVING count(*) = (SELECT count(*) FROM arts)`).
+followup: '"Now students who follow NO Arts course at all." (Anti join; and explain how it differs from ''not every''.)'

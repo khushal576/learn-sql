@@ -1,0 +1,31 @@
+id: rc-012
+title: Payroll of each VP's organisation
+topic: recursive-cte
+tags:
+- recursive
+- hierarchy
+- sum
+difficulty: medium
+dataset: hr
+prompt: |
+  Finance wants the **annual salary bill of each VP's whole organisation**: the VP **plus** everyone who reports to them directly or indirectly. VPs are employees 2 to 6.
+
+  Return `vp_id`, `vp_name`, `total_salary`, ordered by `vp_id`.
+solution_sql: |
+  WITH RECURSIVE tree AS (
+    SELECT id AS vp_id, id FROM employees WHERE id BETWEEN 2 AND 6
+    UNION ALL
+    SELECT t.vp_id, e.id FROM employees e JOIN tree t ON e.manager_id = t.id
+  )
+  SELECT v.id AS vp_id, v.name AS vp_name, sum(e.salary) AS total_salary
+  FROM tree t JOIN employees e ON e.id = t.id JOIN employees v ON v.id = t.vp_id
+  GROUP BY v.id, v.name ORDER BY v.id
+compare:
+  order_matters: true
+hints:
+- Recurse downward keeping the VP id on every row, then join `employees` for the salary and SUM.
+- Is the VP's own salary part of the bill?
+trap: |
+  Summing the direct reports' salaries (the directors) or forgetting the VP's own row gives a bill that is a small fraction of the real one: the staff two levels down are the bulk of the payroll. The recursion has to reach all levels before the SUM.
+followup: |
+  "Same, but only the people hired after 2020." (Filter in the final join, not in the recursion, or you cut off the branch below an older manager.)

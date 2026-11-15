@@ -1,0 +1,31 @@
+id: mk-054
+title: "Free nights left in September"
+topic: mock-interviews
+tags: ["calendar", "cross-join", "anti-join", "inclusive-range"]
+difficulty: hard
+dataset: hotel
+prompt: |
+  Ravi: "Sales wants to know how many nights each room can still sell in **September 2024** (the 30 nights 2024-09-01 .. 2024-09-30)." A night is *free* for a room when
+  (a) no confirmed booking occupies it (`check_in <= night < check_out`) **and** (b) the room is not under maintenance that night (`start_date <= night <= end_date`, the end day is included).
+  Return `room_id` and `free_nights` for **every** room (all 40), ordered by `room_id`.
+solution_sql: |
+  SELECT r.id AS room_id,
+         count(*) FILTER (WHERE
+           NOT EXISTS (SELECT 1 FROM bookings b WHERE b.room_id = r.id AND b.status = 'confirmed'
+                         AND b.check_in <= n.d AND n.d < b.check_out)
+           AND NOT EXISTS (SELECT 1 FROM maintenance m WHERE m.room_id = r.id
+                         AND m.start_date <= n.d AND n.d <= m.end_date)) AS free_nights
+  FROM rooms r
+  CROSS JOIN generate_series(DATE '2024-09-01', DATE '2024-09-30', interval '1 day') AS n(d)
+  GROUP BY r.id
+  ORDER BY r.id
+compare: {order_matters: true}
+hints:
+  - "Build the calendar: every room crossed with every night of September (generate_series)."
+  - "Two anti-conditions per night: no confirmed stay that night, no maintenance window that night."
+  - "The stay ends the night before check_out, the maintenance window includes end_date: the two comparisons are not symmetric."
+trap: |
+  Treating `end_date` of the maintenance window as exclusive (`n.d < m.end_date`) frees one night too many wherever a window ends inside the month: room 37 (deep clean 18-24 September) shows 16 free nights instead of 15.
+  (Ignoring maintenance entirely is the other classic: rooms 4, 23 and 37 then look more available than they are.)
+followup: |
+  "Give me the occupancy rate of September instead." 1 - free/30 would be wrong if maintenance counts as 'not sellable' - define the denominator first (sellable nights = 30 - maintenance nights).

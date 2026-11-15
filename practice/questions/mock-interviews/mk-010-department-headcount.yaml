@@ -1,0 +1,22 @@
+id: mk-010
+title: Headcount and average pay per department
+topic: mock-interviews
+tags: [left-join, count-column, avg-null]
+difficulty: easy
+dataset: hr
+prompt: |
+  HR is drawing up the department directory. List **every department**, including the ones that currently have no employees.
+
+  Return `department` (name), `location`, `headcount` (number of employees) and `avg_salary` (average `salary`, rounded to 2 decimals; NULL when nobody works there), ordered by `department`.
+solution_sql: |
+  SELECT d.name AS department, d.location,
+         count(e.id) AS headcount,
+         round(avg(e.salary), 2) AS avg_salary
+  FROM departments d
+  LEFT JOIN employees e ON e.dept_id = d.id
+  GROUP BY d.id, d.name, d.location
+  ORDER BY d.name
+compare: {order_matters: true}
+hints: ['Which table must keep all of its rows?', '`count(*)` on an outer join counts the NULL-extended row too; count a column of the other side.']
+trap: 'An inner join silently drops Facilities, the department without employees, so the directory shows 8 departments instead of 9. And if you switch to a LEFT JOIN but keep `count(*)`, Facilities reports a headcount of 1 instead of 0: count a column that is NULL for the missing side (`count(e.id)`).'
+followup: '"Now only departments below 31 people." (Where does the condition go? `HAVING count(e.id) < 31`; putting it in WHERE would turn the outer join back into an inner join.)'

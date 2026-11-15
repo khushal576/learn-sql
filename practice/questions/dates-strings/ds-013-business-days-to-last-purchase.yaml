@@ -1,0 +1,39 @@
+id: ds-013
+title: Business days from signup to last purchase
+topic: dates-strings
+tags: [generate_series, isodow, business-days]
+difficulty: hard
+dataset: events
+prompt: |
+  Sales ops measures how long buyers take to finish buying, in **business days** (Monday to Friday; ignore public holidays). Take the **first 20 users who ever bought something** (lowest `user_id` in `purchases`). For each, count the weekdays **after** the signup date, **up to and including** the date of their **last purchase**. Dates are UTC dates. Signing up on Friday and buying on the following Monday is 1 business day; buying the same day is 0.
+
+  Return `user_id`, `signup_date`, `last_purchase_date` (both `date`) and `business_days` (integer), ordered by `user_id`.
+solution_sql: |
+  SELECT b.user_id,
+         b.signup_date,
+         b.last_purchase_date,
+         (SELECT count(*)
+          FROM generate_series(1, b.last_purchase_date - b.signup_date) AS g(i)
+          WHERE extract(isodow FROM b.signup_date + g.i) < 6)::int AS business_days
+  FROM (
+    SELECT p.user_id,
+           (u.signup_at AT TIME ZONE 'UTC')::date AS signup_date,
+           (max(p.ts) AT TIME ZONE 'UTC')::date AS last_purchase_date
+    FROM purchases p
+    JOIN users u ON u.id = p.user_id
+    GROUP BY p.user_id, u.signup_at
+    ORDER BY p.user_id
+    LIMIT 20
+  ) b
+  ORDER BY b.user_id
+compare: {order_matters: true}
+hints:
+  - "A series of the days after signup, filtered on the weekday, is easy to count."
+  - "Decide first whether the signup day itself counts (it does not here)."
+trap: |
+  Counting from the signup day itself (`generate_series(signup_date, last_purchase_date)`) adds one for every user who signed up on a weekday (e.g. user 1 shows 7 instead of 6), and the shortcut `days * 5 / 7` is wrong whenever the span is short or starts on a weekend (user 2 signed up on a Friday and bought on the Saturday: 0 business days). Anything that is not an explicit weekday filter over the right range misses these edges.
+followup: |
+  "How would holidays fit in?" (Anti-join the generated days with a `holidays(date)` calendar table; a calendar/dimension table is also faster than `generate_series` at scale.)
+alternatives:
+  - |
+    WITH b AS (SELECT p.user_id, (u.signup_at AT TIME ZONE 'UTC')::date AS s, (max(p.ts) AT TIME ZONE 'UTC')::date AS l FROM purchases p JOIN users u ON u.id = p.user_id GROUP BY p.user_id, u.signup_at ORDER BY p.user_id LIMIT 20) SELECT b.user_id, b.s AS signup_date, b.l AS last_purchase_date, count(d.day)::int AS business_days FROM b LEFT JOIN LATERAL (SELECT (b.s + g)::date AS day FROM generate_series(1, b.l - b.s) g WHERE extract(isodow FROM b.s + g) BETWEEN 1 AND 5) d ON true GROUP BY b.user_id, b.s, b.l ORDER BY b.user_id

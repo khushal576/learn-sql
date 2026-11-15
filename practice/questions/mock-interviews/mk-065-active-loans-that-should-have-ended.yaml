@@ -1,0 +1,27 @@
+id: mk-065
+title: "Active loans that should have ended"
+topic: mock-interviews
+tags: ["dates", "interval", "data-quality"]
+difficulty: medium
+dataset: bank
+prompt: |
+  Omar: "Our system still marks some loans as active although their term is over." Take today as **2024-06-30**.
+  A loan's scheduled `end_date` is its `start_date` plus `term_months` calendar months. Return the loans with `status = 'active'` whose `end_date` is on or before 2024-06-30:
+  `loan_id`, `customer_id`, `end_date` (a date) and `days_past_end` (2024-06-30 minus the end date, in days). Order by `days_past_end` descending, then `loan_id`.
+solution_sql: |
+  SELECT id AS loan_id, customer_id,
+         (start_date + term_months * INTERVAL '1 month')::date AS end_date,
+         DATE '2024-06-30' - (start_date + term_months * INTERVAL '1 month')::date AS days_past_end
+  FROM loans
+  WHERE status = 'active'
+    AND (start_date + term_months * INTERVAL '1 month')::date <= DATE '2024-06-30'
+  ORDER BY days_past_end DESC, loan_id
+compare: {order_matters: true}
+hints:
+  - "Adding a number of MONTHS to a date needs an interval, not a plain integer (which adds days)."
+  - "Multiply the interval: term_months * INTERVAL '1 month'. The result is a timestamp - cast it back to date."
+  - "Compute the end date once (CTE or subquery) if you do not want to repeat the expression."
+trap: |
+  `start_date + term_months * 30` treats a month as 30 days: the filter happens to select the same 36 loans, but every `end_date` and `days_past_end` is wrong (loan 2: 2024-01-12 instead of 2024-01-27; a 12-month loan ends 5 days before its anniversary).
+followup: |
+  "Why 'plus 1 month' from the 31st lands on the 28th/30th?" Postgres clamps to the last day of the target month - add months, do not multiply days, and test month-end starts.

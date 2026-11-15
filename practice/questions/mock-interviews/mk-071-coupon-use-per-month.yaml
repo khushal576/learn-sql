@@ -1,0 +1,28 @@
+id: mk-071
+title: "Coupon use per month"
+topic: mock-interviews
+tags: ["jsonb", "json-null", "conditional-aggregation"]
+difficulty: medium
+dataset: events
+prompt: |
+  Kofi: "Did the coupon campaign work? For each month, how many purchases used a coupon?" Use the `purchase` events (`events.name = 'purchase'`). Their `props` is jsonb with a key `coupon`: either a coupon code (text) or the JSON value `null` when no coupon was used.
+  A purchase **used a coupon** when `coupon` holds a real code.
+  Return one row per month (UTC, by `ts`): `month` (first day of the month, a date), `purchases`, `coupon_purchases` and `coupon_pct` (0-100, rounded to 2 decimals). Order by `month`.
+solution_sql: |
+  SELECT date_trunc('month', ts AT TIME ZONE 'UTC')::date AS month,
+         count(*) AS purchases,
+         count(*) FILTER (WHERE props ->> 'coupon' IS NOT NULL) AS coupon_purchases,
+         round(100.0 * count(*) FILTER (WHERE props ->> 'coupon' IS NOT NULL) / count(*), 2) AS coupon_pct
+  FROM events
+  WHERE name = 'purchase'
+  GROUP BY 1
+  ORDER BY 1
+compare: {order_matters: true}
+hints:
+  - "jsonb has three different states for a key: missing, JSON null and a value."
+  - "The ->> operator returns SQL NULL both for a missing key and for a JSON null."
+  - "The ? operator only asks whether the key exists."
+trap: |
+  `props ? 'coupon'` only tests that the key exists - and it exists in every purchase event, as JSON null when no coupon was used: the wrong query reports 1,632 coupon purchases (100 %) instead of the 563 real ones.
+followup: |
+  "How do I tell a missing key from a JSON null?" props ? 'key' for existence, jsonb_typeof(props -> 'key') = 'null' for a JSON null, props ->> 'key' IS NULL for either.

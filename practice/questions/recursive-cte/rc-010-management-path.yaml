@@ -1,0 +1,34 @@
+id: rc-010
+title: Management path under a VP
+topic: recursive-cte
+tags:
+- recursive
+- hierarchy
+- path
+- string
+difficulty: medium
+dataset: hr
+prompt: |
+  For an org-chart export, list the people who report (directly or indirectly) to **VP 3**, but only those with **employee id 70 or lower**. For each, show the **management path** from VP 3 down to the person as text, names joined with ` > ` (e.g. `Sofia Silva 3 > Chloe Chen 11 > Mei Silva 43`).
+
+  Return `id`, `name`, `depth` (direct reports of VP 3 = 1), `path`, ordered by `id`.
+solution_sql: |
+  WITH RECURSIVE tree AS (
+    SELECT id, name, 1 AS depth, name_path FROM (
+      SELECT e.id, e.name, (SELECT name FROM employees WHERE id = 3) || ' > ' || e.name AS name_path
+      FROM employees e WHERE e.manager_id = 3
+    ) a
+    UNION ALL
+    SELECT e.id, e.name, t.depth + 1, t.name_path || ' > ' || e.name
+    FROM employees e JOIN tree t ON e.manager_id = t.id
+  )
+  SELECT id, name, depth, name_path AS path FROM tree WHERE id <= 70 ORDER BY id
+compare:
+  order_matters: true
+hints:
+- 'Carry the text path as a column: the step appends ` > ` and the child''s name to the parent''s path.'
+- The path must start with VP 3 himself, so build the anchor's path from his name too.
+trap: |
+  A single join to the manager gives 'Chloe Chen 11 > Mei Silva 43' - one level only - and a path that starts at the direct manager forgets the VP. Filtering on `id <= 70` belongs in the final SELECT: inside the recursion it would cut off people whose manager has a higher id (the staff below directors 11, 16, 21 and 26 would all vanish).
+followup: |
+  "Add the number of people each person manages." (A second pass or a window over the path; or count descendants like the team-size question.)

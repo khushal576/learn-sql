@@ -1,0 +1,37 @@
+id: mk-030
+title: 'Weekly cohorts: first purchase within 24 and 48 hours'
+topic: mock-interviews
+tags: [cohort, distinct-users, timestamp, left-join]
+difficulty: hard
+dataset: events
+prompt: |
+  Marketing evaluates the signup-to-purchase conversion by weekly cohort. The cohort of a user is the **week (Monday, UTC)** of `signup_at`, shown as a date. For each cohort return:
+
+  - `cohort_week`, `signups` (all users of the cohort)
+  - `bought_24h`: users whose **first** `purchase` event happened within 24 hours after signup (inclusive)
+  - `bought_48h`: the same within 48 hours
+  - `pct_48h`: bought_48h as a percentage of signups (0-100, rounded to 2 decimals)
+
+  Order by `cohort_week`. Cohorts in which nobody bought must still appear.
+solution_sql: |
+  WITH cohort AS (
+    SELECT id, date_trunc('week', signup_at AT TIME ZONE 'UTC')::date AS cohort_week, signup_at
+    FROM users),
+  first_buy AS (
+    SELECT user_id, min(ts) AS first_purchase
+    FROM events
+    WHERE name = 'purchase'
+    GROUP BY user_id)
+  SELECT c.cohort_week,
+         count(*) AS signups,
+         count(*) FILTER (WHERE f.first_purchase <= c.signup_at + interval '24 hours') AS bought_24h,
+         count(*) FILTER (WHERE f.first_purchase <= c.signup_at + interval '48 hours') AS bought_48h,
+         round(100.0 * count(*) FILTER (WHERE f.first_purchase <= c.signup_at + interval '48 hours') / count(*), 2) AS pct_48h
+  FROM cohort c
+  LEFT JOIN first_buy f ON f.user_id = c.id
+  GROUP BY c.cohort_week
+  ORDER BY c.cohort_week
+compare: {order_matters: true}
+hints: ['Count users, not purchase events: reduce to the first purchase per user first.', Use a LEFT JOIN from users (or an EXISTS) so that non-buyers still count in `signups`.]
+trap: 'Joining users to all their purchase events and counting rows counts a buyer once per purchase: the first cohort shows 12 purchases in 24 h instead of 8 buyers and `pct_48h` 60.71% instead of 28.57%, and percentages can exceed 100%. Work on the first purchase per user (or use `EXISTS`) and divide by users.'
+followup: '"What if signup times were stored in the user''s local time zone?" (Convert with `AT TIME ZONE users.tz` before taking the week, and decide explicitly whether the cohort is local or UTC.)'

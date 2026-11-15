@@ -1,0 +1,27 @@
+id: mk-038
+title: "Monthly delay rate"
+topic: mock-interviews
+tags: ["conditional-aggregation", "dates", "percentage"]
+difficulty: medium
+dataset: logistics
+prompt: |
+  Dana: "Delays are what customers complain about. For every month of 2024 I want the delay rate." A trip that was cancelled never drove, so it is neither on time nor late.
+  Return one row per calendar month with `month` (first day of the month, as a date), `finished_trips` (trips with status `done` or `delayed`), `delayed_trips` and
+  `delayed_pct` = delayed trips as a percentage (0-100) of the finished trips, rounded to 2 decimals. Order by `month`.
+solution_sql: |
+  SELECT date_trunc('month', started_at)::date AS month,
+         count(*) FILTER (WHERE status <> 'cancelled') AS finished_trips,
+         count(*) FILTER (WHERE status = 'delayed') AS delayed_trips,
+         round(100.0 * count(*) FILTER (WHERE status = 'delayed') / count(*) FILTER (WHERE status <> 'cancelled'), 2) AS delayed_pct
+  FROM trips
+  GROUP BY 1
+  ORDER BY 1
+compare: {order_matters: true}
+hints:
+  - "Conditional aggregation: count(*) FILTER (WHERE ...) or sum(CASE ...) gives several counts in one pass."
+  - "Which rows belong in the denominator? Re-read what the prompt says about cancelled trips."
+  - "100.0 * a / b keeps the division in numeric; 100 * a / b with two integers truncates."
+trap: |
+  Using `count(*)` as the denominator mixes cancelled trips into the base, so the rate is understated in every one of the 12 months (every month has 14-16 cancelled trips in the base). Also integer division (`100 * delayed / total`) would truncate to whole numbers.
+followup: |
+  "Which hubs are the worst in the worst month?" Add from_hub to the GROUP BY and a window rank, or filter to that month and ORDER BY delayed_pct DESC.

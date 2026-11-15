@@ -1,0 +1,30 @@
+id: ds-014
+title: Long stays split by month
+topic: dates-strings
+tags: [generate_series, date-arithmetic, month-end, check-out-exclusive]
+difficulty: hard
+dataset: hotel
+prompt: |
+  Accounting books room revenue **per calendar month**, so a long stay that crosses a month end must be split. Take the **confirmed** bookings of **rooms 33 to 36** that last **30 nights or more** (`check_out - check_in >= 30`). A guest sleeps the nights `check_in` ... `check_out - 1`; the `check_out` date is the morning they leave and is **not** a night.
+
+  Return `booking_id`, `month` (text, like `2024-02`) and `nights` spent in that month, ordered by `booking_id`, then `month`. Only months with at least one night appear.
+solution_sql: |
+  SELECT b.id AS booking_id, to_char(n.night, 'YYYY-MM') AS month, count(*) AS nights
+  FROM bookings b
+  CROSS JOIN LATERAL generate_series(b.check_in::timestamp, (b.check_out - 1)::timestamp, interval '1 day') AS n(night)
+  WHERE b.room_id BETWEEN 33 AND 36
+    AND b.status = 'confirmed'
+    AND b.check_out - b.check_in >= 30
+  GROUP BY b.id, to_char(n.night, 'YYYY-MM')
+  ORDER BY b.id, 2
+compare: {order_matters: true}
+hints:
+  - "Turn every stay into one row per night, then group by the month of the night."
+  - "Which date is the last night of the stay?"
+trap: |
+  Generating the days up to `check_out` (inclusive) invents a night that never happened: every one of the 15 stays gets one extra night in its last month (15 phantom nights in total), and a stay that checks out on the 1st would even show a month in which the guest never slept. `check_out` is exclusive: generate `check_in` to `check_out - 1`. Attributing the whole stay to the check-in month is the other classic error: it ignores that the stay spans 2 or 3 months.
+followup: |
+  "Do it without generating rows." (For each month overlap: `greatest(0, least(check_out, month_start + 1 month) - greatest(check_in, month_start))` over a series of months.)
+alternatives:
+  - |
+    SELECT b.id AS booking_id, to_char(m.ms, 'YYYY-MM') AS month, (least(b.check_out, (m.ms + interval '1 month')::date) - greatest(b.check_in, m.ms::date)) AS nights FROM bookings b CROSS JOIN LATERAL generate_series(date_trunc('month', b.check_in::timestamp), (b.check_out - 1)::timestamp, interval '1 month') AS m(ms) WHERE b.room_id BETWEEN 33 AND 36 AND b.status = 'confirmed' AND b.check_out - b.check_in >= 30 ORDER BY b.id, 2

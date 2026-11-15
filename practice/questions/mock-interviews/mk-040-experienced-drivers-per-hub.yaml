@@ -1,0 +1,25 @@
+id: mk-040
+title: "Experienced drivers per hub"
+topic: mock-interviews
+tags: ["left-join", "count", "filter-vs-on"]
+difficulty: easy
+dataset: logistics
+prompt: |
+  Staffing check: list **every** hub (all 30, even ones nobody is based at) with the number of **experienced** drivers based there, where experienced means `hired_on` before 2022-01-01.
+  Return `hub_id`, `hub_name` (hubs.name) and `experienced_drivers`, ordered by `hub_id`. Hubs without any experienced driver must show 0.
+solution_sql: |
+  SELECT h.id AS hub_id, h.name AS hub_name, count(d.id) AS experienced_drivers
+  FROM hubs h
+  LEFT JOIN drivers d ON d.hub_id = h.id AND d.hired_on < '2022-01-01'
+  GROUP BY h.id, h.name
+  ORDER BY h.id
+compare: {order_matters: true}
+hints:
+  - "You need every hub, so the hubs table must be the preserved side of an outer join."
+  - "count(d.id) counts only the matched drivers, count(*) counts the hub row itself."
+  - "Where does the 'experienced' condition belong so that hubs without such drivers survive - WHERE or ON?"
+trap: |
+  Putting the hire-date condition in WHERE turns the LEFT JOIN into an inner join: hubs without an experienced driver disappear (the wrong query returns 26 of the 30 hubs).
+  Using count(*) instead of count(d.id) would show 1 instead of 0 for them.
+followup: |
+  "Show me hubs with no drivers at all, separately." An anti-join: WHERE NOT EXISTS (SELECT 1 FROM drivers d WHERE d.hub_id = h.id) - hubs 29 and 30 are the ones.

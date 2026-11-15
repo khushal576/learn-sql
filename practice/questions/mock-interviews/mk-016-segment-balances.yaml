@@ -1,0 +1,28 @@
+id: mk-016
+title: Accounts and balances per customer segment
+topic: mock-interviews
+tags: [join, fan-out, distinct-count, filter]
+difficulty: easy
+dataset: bank
+prompt: |
+  Retail management wants a one-glance picture of the customer base. For every customer `segment` return:
+
+  - `customers`: number of customers (every customer has at least one account)
+  - `open_accounts`: number of accounts with `status = 'open'`
+  - `net_balance`: the sum of all signed `transactions.amount` on those **open** accounts
+
+  Return `segment`, `customers`, `open_accounts`, `net_balance`, ordered by `segment`.
+solution_sql: |
+  SELECT c.segment,
+         count(DISTINCT c.id) AS customers,
+         count(DISTINCT a.id) FILTER (WHERE a.status = 'open') AS open_accounts,
+         sum(t.amount) FILTER (WHERE a.status = 'open') AS net_balance
+  FROM customers c
+  JOIN accounts a ON a.customer_id = c.id
+  LEFT JOIN transactions t ON t.account_id = a.id
+  GROUP BY c.segment
+  ORDER BY c.segment
+compare: {order_matters: true}
+hints: ['Joining customers to accounts to transactions repeats a customer and an account many times: which counts need `DISTINCT`?', A conditional aggregate (`FILTER`) lets you count open accounts and sum their amounts in the same pass.]
+trap: 'After joining `transactions`, each account row appears once per transaction, so `count(a.id)` counts transactions of open accounts: retail shows 7,398 open accounts instead of 379. Counts of entities that sit above a one-to-many join need `count(DISTINCT ...)` (or a pre-aggregated subquery).'
+followup: '"Why is it dangerous to `sum` an account-level column such as a credit limit in this same query?" (Same fan-out: it would be added once per transaction row. Aggregate each level separately, then join.)'

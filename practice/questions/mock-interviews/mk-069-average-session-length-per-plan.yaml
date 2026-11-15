@@ -1,0 +1,35 @@
+id: mk-069
+title: "Average session length per plan"
+topic: mock-interviews
+tags: ["sessionization", "window", "lag", "boundary"]
+difficulty: hard
+dataset: events
+prompt: |
+  Lena: "How long are our sessions, and does the plan matter?" Define sessions per user from the `events` table: order a user's events by `ts` (then `id` to break ties); a **new session starts** at the user's first event and whenever the gap to the **previous event of that user is more than 30 minutes** (exactly 30 minutes still belongs to the same session).
+  A session's length is the time between its first and last event (a one-event session has length 0).
+  Return one row per `plan` with `plan`, `sessions` (number of sessions of the users on that plan) and `avg_minutes` (average session length in minutes, rounded to 2 decimals). Order by `plan`.
+solution_sql: |
+  WITH g AS (
+    SELECT user_id, id, ts, lag(ts) OVER (PARTITION BY user_id ORDER BY ts, id) AS prev
+    FROM events
+  ), s AS (
+    SELECT user_id, ts,
+           sum(CASE WHEN prev IS NULL OR ts - prev > interval '30 minutes' THEN 1 ELSE 0 END)
+             OVER (PARTITION BY user_id ORDER BY ts, id) AS sn
+    FROM g
+  ), x AS (
+    SELECT user_id, sn, max(ts) - min(ts) AS len FROM s GROUP BY user_id, sn
+  )
+  SELECT u.plan, count(*) AS sessions, round(avg(extract(epoch FROM x.len)) / 60, 2) AS avg_minutes
+  FROM x JOIN users u ON u.id = x.user_id
+  GROUP BY u.plan
+  ORDER BY u.plan
+compare: {order_matters: true}
+hints:
+  - "lag(ts) per user gives the previous event; flag a row as a session start when there is no previous event or the gap is too big."
+  - "A running sum of the flags numbers the sessions of each user; group by user and session number to get first/last timestamps."
+  - "Mind the boundary: a gap of exactly 30 minutes must NOT start a new session."
+trap: |
+  Using `>=` 30 minutes instead of `>` splits every session at an exact 30-minute gap: the data has many of those on purpose, so the wrong query finds 10,609 sessions instead of 9,081 and the average length drops from about 10 minutes to about 5 (free plan: 3,846 sessions and 4.89 minutes instead of 3,331 and 10.29).
+followup: |
+  "Why is the tie-break on id needed?" About 3 % of a user's events share an identical timestamp, so without it the order (and with it lag() and the session boundaries) is not deterministic.

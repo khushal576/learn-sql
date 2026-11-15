@@ -1,0 +1,33 @@
+id: mk-044
+title: "Pickup coverage per state"
+topic: mock-interviews
+tags: ["recursive", "tree", "left-join", "zero-fill"]
+difficulty: medium
+dataset: logistics
+prompt: |
+  Priya: "Customers drop parcels at our `pickup` hubs. Which states are covered?" The `regions` tree has four levels: world (root) > country > state > city, and a hub sits in a **city**.
+  For every **state** (a region whose parent is a country, i.e. at depth 3 below the root World) return `state_id`, `state_name` and `pickup_hubs` - the number of hubs with `kind = 'pickup'` located anywhere inside that state. States without a pickup hub must appear with 0.
+  There are 12 states. Order by `state_id`.
+solution_sql: |
+  WITH RECURSIVE tree AS (
+    SELECT id AS state_id, name AS state_name, id AS region_id
+    FROM regions
+    WHERE parent_id IN (SELECT id FROM regions WHERE parent_id = 1)
+    UNION ALL
+    SELECT t.state_id, t.state_name, r.id
+    FROM regions r JOIN tree t ON r.parent_id = t.region_id
+  )
+  SELECT t.state_id, t.state_name, count(h.id) FILTER (WHERE h.kind = 'pickup') AS pickup_hubs
+  FROM tree t
+  LEFT JOIN hubs h ON h.region_id = t.region_id
+  GROUP BY t.state_id, t.state_name
+  ORDER BY t.state_id
+compare: {order_matters: true}
+hints:
+  - "Hubs are attached to cities, not to states: you need every region below a state (a recursive CTE that carries the state id down the tree)."
+  - "Identify the states by depth: the root has no parent, countries hang under the root, states under countries."
+  - "A state without pickup hubs has to survive the join: keep the kind condition inside count(...) FILTER or in the ON clause, not in WHERE."
+trap: |
+  Filtering `WHERE h.kind = 'pickup'` after the LEFT JOIN removes every state with no pickup hub: 5 of the 12 states (North, Central and South Aldoria, North Borland, South Dunmark) vanish and the wrong query returns 7 rows.
+followup: |
+  "And per country?" Same tree, anchored one level higher - or sum the state rows with GROUP BY ROLLUP.

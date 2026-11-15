@@ -1,0 +1,26 @@
+id: ds-010
+title: Phone numbers to 10 digits
+topic: dates-strings
+tags: [regexp_replace, phone, text-cleaning]
+difficulty: medium
+dataset: events
+prompt: |
+  The SMS provider only accepts the **10-digit national number**. Phones are stored in many formats (`+91 98765 00007`, `(555) 206-5838`, `555.259.3757`, `5553121676`, `+1 555 365 9595`, `555 418 7514`). Remove everything that is not a digit and keep the **last 10 digits**.
+
+  For **users 1 to 40 who have a phone**, return `id` and `national_number` (text), ordered by `id`.
+solution_sql: |
+  SELECT id, right(regexp_replace(phone, '\D', '', 'g'), 10) AS national_number
+  FROM users
+  WHERE id <= 40 AND phone IS NOT NULL
+  ORDER BY id
+compare: {order_matters: true}
+hints:
+  - "`\\D` means 'a character that is not a digit'."
+  - "How many occurrences does `regexp_replace` replace unless you tell it otherwise?"
+trap: |
+  `regexp_replace(phone, '\D', '')` without the `'g'` flag replaces only the **first** non-digit: `(555) 206-5838` becomes `555) 206-5838`, so every formatted number comes out wrong. Always pass `'g'` when you mean 'all of them'. (Taking `right(phone, 10)` of the raw text fails too: `+91 98765 00007` yields `65 00007`.)
+followup: |
+  "How do you keep the country code instead?" (Keep all digits, then the first `length - 10` characters are the country code: `91`, `1` or empty.)
+alternatives:
+  - |
+    SELECT id, right(translate(phone, '+()-. ', ''), 10) AS national_number FROM users WHERE id <= 40 AND phone IS NOT NULL ORDER BY id

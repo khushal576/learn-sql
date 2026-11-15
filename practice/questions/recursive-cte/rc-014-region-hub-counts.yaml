@@ -1,0 +1,40 @@
+id: rc-014
+title: Hubs per region, whole subtree
+topic: recursive-cte
+tags:
+- recursive
+- tree
+- rollup
+- left-join
+difficulty: hard
+dataset: logistics
+prompt: |
+  Expansion planning wants, for **every region** in the tree (World, countries, states, cities), its **level** (World = 1) and the **number of hubs located anywhere inside it**, i.e. in the region itself or in any region below it. Hubs only sit in city regions, but a country's count must include all its states' cities. Regions with no hub show 0.
+
+  Return `region_id`, `name`, `level`, `hub_count`, ordered by `region_id`.
+solution_sql: |
+  WITH RECURSIVE tree AS (
+    SELECT id AS top, id, 1 AS rel FROM regions
+    UNION ALL
+    SELECT t.top, c.id, t.rel + 1 FROM regions c JOIN tree t ON c.parent_id = t.id
+  ), lvl AS (
+    SELECT id, 1 AS level FROM regions WHERE parent_id IS NULL
+    UNION ALL
+    SELECT c.id, l.level + 1 FROM regions c JOIN lvl l ON c.parent_id = l.id
+  )
+  SELECT r.id AS region_id, r.name, l.level, count(h.id) AS hub_count
+  FROM regions r
+  JOIN lvl l ON l.id = r.id
+  JOIN tree t ON t.top = r.id
+  LEFT JOIN hubs h ON h.region_id = t.id
+  GROUP BY r.id, r.name, l.level
+  ORDER BY r.id
+compare:
+  order_matters: true
+hints:
+- First work out, for each region, the set of all regions below it (itself included); then count hubs over that set.
+- Use LEFT JOINs so a region without hubs survives with 0.
+trap: |
+  Counting hubs whose `region_id` equals the region only works for cities: every state, country and the World would show 0, although the World must show all 30 hubs. The count has to roll up the whole subtree, and the LEFT JOIN keeps the cities with no hub (0) in the list.
+followup: |
+  "Show only the countries with more than 5 hubs." (HAVING on the same query; or filter level = 2.)

@@ -1,0 +1,33 @@
+id: dm-002
+title: Which tables have a composite primary key?
+topic: data-modelling
+tags: [pg_constraint, primary-key, metadata]
+difficulty: easy
+dataset: school
+prompt: |
+  The data-governance team is reviewing the **school** model. A table whose **primary key spans more than one column** needs special care in every join and in every foreign key that points to it.
+
+  List the tables of the current dataset schema whose primary key has **two or more columns**.
+
+  Return `table_name` and `key_columns` (how many columns the primary key has), ordered by `table_name`.
+solution_sql: |
+  SELECT conrelid::regclass::text AS table_name, cardinality(conkey) AS key_columns
+  FROM pg_constraint
+  WHERE contype = 'p'
+    AND connamespace = current_schema()::regnamespace
+    AND cardinality(conkey) > 1
+  ORDER BY 1
+compare: {order_matters: true}
+hints:
+  - "pg_constraint.conkey is an array with the column numbers of the constraint; contype tells the kind of constraint."
+  - "A UNIQUE constraint is not a primary key, even when it spans several columns."
+trap: |
+  Filtering only on "constraint with more than one column" also catches `scores`, whose three-column **UNIQUE** (student_id, course_id, exam) is a candidate key but not the primary key (that is the single column `id`). The kind of constraint (`contype = 'p'`) is part of the question; and so is the schema filter, or other datasets' tables would show up.
+followup: |
+  "What is the difference between a primary key and a unique constraint?" (Both are unique; a table has one primary key and it can never contain NULL, a table can have many unique constraints and they allow NULLs.)
+alternatives:
+  - |
+    SELECT c.conrelid::regclass::text AS table_name, count(*)::int AS key_columns
+    FROM pg_constraint c CROSS JOIN LATERAL unnest(c.conkey) AS k(attnum)
+    WHERE c.contype = 'p' AND c.connamespace = current_schema()::regnamespace
+    GROUP BY c.oid, 1 HAVING count(*) > 1 ORDER BY 1

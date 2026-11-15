@@ -1,0 +1,26 @@
+id: mk-011
+title: Non-managers paid above their department average
+topic: mock-interviews
+tags: [not-exists, not-in-null, window, cte]
+difficulty: medium
+dataset: hr
+prompt: |
+  Compensation committee: find **individual contributors** (employees that have **no direct reports**) who earn **more than the average salary of their department**. The department average is computed over **all** employees of the department, managers included.
+
+  Return the 15 highest paid: `id`, `name`, `department` (name), `salary`, `dept_avg` (rounded to 2 decimals), ordered by `salary` descending, then `id`.
+solution_sql: |
+  WITH x AS (
+    SELECT e.id, e.name, e.dept_id, e.salary,
+           avg(e.salary) OVER (PARTITION BY e.dept_id) AS dept_avg
+    FROM employees e)
+  SELECT x.id, x.name, d.name AS department, x.salary, round(x.dept_avg, 2) AS dept_avg
+  FROM x
+  JOIN departments d ON d.id = x.dept_id
+  WHERE x.salary > x.dept_avg
+    AND NOT EXISTS (SELECT 1 FROM employees r WHERE r.manager_id = x.id)
+  ORDER BY x.salary DESC, x.id
+  LIMIT 15
+compare: {order_matters: true}
+hints: [Do the average first (window or subquery over everybody) and filter afterwards; filtering before it changes the average., A manager is someone who appears in `manager_id` of another row. Careful with NULLs in that column.]
+trap: '`id NOT IN (SELECT manager_id FROM employees)` returns **no rows at all**: the CEO''s `manager_id` is NULL, and `x NOT IN (..., NULL)` is never true. Use `NOT EXISTS` (or filter the NULL out of the subquery). Also compute the department average before you remove the managers, otherwise it is the average of non-managers only.'
+followup: '"What if two people are tied at the 15th place?" (Add a tie rule or `WITH TIES` / `rank()`; the id tie-break only makes the output deterministic, not fair.)'

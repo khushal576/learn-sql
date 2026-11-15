@@ -1,0 +1,33 @@
+id: mk-075
+title: "Each VP's whole organisation, staffed or not"
+topic: mock-interviews
+tags: ["recursive", "hierarchy", "anti-join", "rollup"]
+difficulty: hard
+dataset: hr
+prompt: |
+  Claire: "For every VP (everyone whose boss is the CEO, id 1) I want the picture of their **entire organisation**: all people who report to them directly or indirectly - the VP themselves excluded."
+  Return one row per VP: `vp_id`, `name`, `org_size` (people in the organisation), `unstaffed` (of those, people with no row in `project_assignments`) and `total_hours` (sum of `hours` of all assignments of those people; 0 if none). Order by `vp_id`.
+solution_sql: |
+  WITH RECURSIVE org AS (
+    SELECT id AS vp_id, id FROM employees WHERE manager_id = 1
+    UNION ALL
+    SELECT o.vp_id, e.id FROM employees e JOIN org o ON e.manager_id = o.id
+  )
+  SELECT v.id AS vp_id, v.name,
+         count(*) FILTER (WHERE o.id <> o.vp_id) AS org_size,
+         count(*) FILTER (WHERE o.id <> o.vp_id AND NOT EXISTS (SELECT 1 FROM project_assignments a WHERE a.emp_id = o.id)) AS unstaffed,
+         coalesce(sum(h.hours) FILTER (WHERE o.id <> o.vp_id), 0) AS total_hours
+  FROM org o
+  JOIN employees v ON v.id = o.vp_id
+  LEFT JOIN (SELECT emp_id, sum(hours) AS hours FROM project_assignments GROUP BY emp_id) h ON h.emp_id = o.id
+  GROUP BY v.id, v.name
+  ORDER BY v.id
+compare: {order_matters: true}
+hints:
+  - "Recursive CTE: anchor = the VPs (carry their id as the 'owner' of every row), step = people whose manager is already in the tree."
+  - "Pre-aggregate the hours per employee before joining, so the join stays one row per person."
+  - "The VP row itself is in the tree (it is the anchor) - exclude it from the three numbers."
+trap: |
+  Looking only at direct reports (a single join on manager_id) sees 4-5 people per VP instead of the 41-51 in their real organisation (VP 2: 5 instead of 51), and misses every director's team. Forgetting to exclude the VP's own row inflates every count by one.
+followup: |
+  "The same for directors, and show their depth." Start the anchor one level lower and carry a depth counter; for arbitrary roots use the whole tree and group by the ancestor.

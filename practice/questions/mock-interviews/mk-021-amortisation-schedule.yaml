@@ -1,0 +1,35 @@
+id: mk-021
+title: Amortisation schedule of two loans
+topic: mock-interviews
+tags: [recursive-cte, amortisation, numeric, finance]
+difficulty: hard
+dataset: bank
+prompt: |
+  A customer disputes the interest on **loans 2 and 5**. Build the repayment schedule of both. Each loan is repaid in `term_months` equal monthly payments; the monthly rate is `annual_rate / 12 / 100` (call it r) and the payment is `principal * r / (1 - (1 + r)^(-term_months))`. In month k the **interest** is the balance at the start of the month times r, the **principal_paid** is payment minus interest, and `balance_after` is the opening balance minus principal_paid. Month 1 opens with the full principal. Do the calculation in full precision and **round only the output columns to 2 decimals**.
+
+  Return `loan_id`, `month_no`, `payment`, `interest`, `principal_paid`, `balance_after` for every month of both loans, ordered by `loan_id`, `month_no`.
+solution_sql: |
+  WITH RECURSIVE l AS (
+    SELECT id, principal, annual_rate / 1200.0 AS r, term_months AS n,
+           principal * (annual_rate / 1200.0) / (1 - power(1 + annual_rate / 1200.0, -term_months)) AS pmt
+    FROM loans
+    WHERE id IN (2, 5)),
+  s AS (
+    SELECT id AS loan_id, 1 AS month_no, pmt AS payment, principal * r AS interest, principal::numeric AS opening, r, n, pmt
+    FROM l
+    UNION ALL
+    SELECT s.loan_id, s.month_no + 1, s.pmt, (s.opening - (s.pmt - s.interest)) * s.r,
+           s.opening - (s.pmt - s.interest), s.r, s.n, s.pmt
+    FROM s
+    WHERE s.month_no < s.n)
+  SELECT loan_id, month_no,
+         round(payment, 2) AS payment,
+         round(interest, 2) AS interest,
+         round(payment - interest, 2) AS principal_paid,
+         round(opening - (payment - interest), 2) AS balance_after
+  FROM s
+  ORDER BY loan_id, month_no
+compare: {order_matters: true}
+hints: ['Each month depends on the previous month: that is a recursive CTE (or a closed formula for the balance).', 'Carry the opening balance in the recursion, and do not round it between steps.']
+trap: Computing interest on the **original principal** every month (a flat rate) keeps the interest at 36.95 for all 36 months of loan 2, whereas on a reducing balance it falls to 36.02 in month 2 and keeps shrinking. The schedule then ends with a leftover balance instead of 0. Interest is charged on the outstanding balance, which is why the recursion has to carry it.
+followup: '"Show the total interest paid over the life of each loan." (Sum the `interest` column per loan; for loan 2 it is payments x 36 minus the principal.)'

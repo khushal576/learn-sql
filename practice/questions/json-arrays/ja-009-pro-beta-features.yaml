@@ -1,0 +1,27 @@
+id: ja-009
+title: Beta features used by pro tags
+topic: json-arrays
+tags: [jsonb, containment, "@>"]
+difficulty: medium
+dataset: events
+prompt: |
+  Some `feature_used` events carry a JSON array `tags` in `props` (for example `["pro", "beta"]`). The product manager wants to see which features are used while the event is tagged **both `pro` and `beta`**.
+
+  Return `feature` (text, from `props`) and `events`, ordered by `events` descending, then `feature`.
+solution_sql: |
+  SELECT props ->> 'feature' AS feature, count(*) AS events
+  FROM events
+  WHERE name = 'feature_used'
+    AND props -> 'tags' @> '["pro", "beta"]'::jsonb
+  GROUP BY 1
+  ORDER BY events DESC, feature
+compare: {order_matters: true}
+hints:
+  - "Containment (`@>`) asks whether ALL the listed elements are present. The `?|` and `?&` operators work on arrays of keys / strings."
+trap: |
+  `props -> 'tags' ?| array['pro','beta']` means pro **or** beta: every tagged event has `pro`, so 1 665 events qualify instead of the 561 that also have `beta`. For "both" use `@>` (or `?&`).
+followup: |
+  "Which of these operators can a GIN index on `props` serve?" (`@>`, `?`, `?|` and `?&` all can; `->>` comparisons and `LIKE` on the text cast cannot.)
+alternatives:
+  - |
+    SELECT props ->> 'feature' AS feature, count(*) AS events FROM events WHERE name = 'feature_used' AND props -> 'tags' ?& array['pro', 'beta'] GROUP BY 1 ORDER BY 2 DESC, 1

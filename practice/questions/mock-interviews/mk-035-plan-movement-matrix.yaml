@@ -1,0 +1,28 @@
+id: mk-035
+title: Plan movement between two snapshots
+topic: mock-interviews
+tags: [full-join, snapshot, 'null', as-of]
+difficulty: medium
+dataset: events
+prompt: |
+  Finance wants a movement matrix between two snapshot days: **2024-02-15** and **2024-04-15**. On a given day a user is subscribed to a plan when `started_on <= day` and (`ended_on IS NULL` or `ended_on >= day`). A user not subscribed on that day has the plan `none`.
+
+  Return `plan_feb_15`, `plan_apr_15` and `users` (the number of users with that combination), for every combination that occurs among users subscribed on at least one of the two days, ordered by `plan_feb_15`, `plan_apr_15`.
+solution_sql: |
+  WITH feb AS (
+    SELECT DISTINCT user_id, plan FROM subscriptions
+    WHERE started_on <= DATE '2024-02-15' AND (ended_on IS NULL OR ended_on >= DATE '2024-02-15')),
+  apr AS (
+    SELECT DISTINCT user_id, plan FROM subscriptions
+    WHERE started_on <= DATE '2024-04-15' AND (ended_on IS NULL OR ended_on >= DATE '2024-04-15'))
+  SELECT coalesce(f.plan, 'none') AS plan_feb_15,
+         coalesce(a.plan, 'none') AS plan_apr_15,
+         count(*) AS users
+  FROM feb f
+  FULL JOIN apr a ON a.user_id = f.user_id
+  GROUP BY coalesce(f.plan, 'none'), coalesce(a.plan, 'none')
+  ORDER BY plan_feb_15, plan_apr_15
+compare: {order_matters: true}
+hints: ['You need users who appear on only one side: which join keeps both sides?', Replace the missing plan by the label `none` after the join.]
+trap: 'Starting from the February snapshot with a LEFT JOIN never sees the 246 users who subscribed after February 15 and were active in April (`none -> pro` 124, `none -> team` 122): the matrix has 5 rows instead of 7 and the April plan totals are wrong. Use a FULL OUTER JOIN of the two snapshots and COALESCE the labels.'
+followup: '"How would you also split the ''none'' of April into never-subscribed and churned?" (Check whether the user had a subscription row ending before the day: a third snapshot condition or a lookup with EXISTS.)'

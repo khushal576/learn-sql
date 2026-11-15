@@ -1,0 +1,34 @@
+id: mk-048
+title: "Nights sold without a price card"
+topic: mock-interviews
+tags: ["generate_series", "anti-join", "date-ranges"]
+difficulty: hard
+dataset: hotel
+prompt: |
+  Elena: "Now the expensive question: how many nights did we sell on days for which the room's type had no valid rate card?" Rate cards are per room type and inclusive at both ends.
+  Look at the nights of **confirmed** bookings that fall in 2024 (nights up to and including 2024-12-31; a stay occupies `check_in` .. `check_out - 1`). A night is *uncovered* when no rate card of the room's type contains that day.
+  Return one row per room that has at least one uncovered night: `room_id`, `bookings` (number of distinct bookings of that room with an uncovered night) and `uncovered_nights`. Order by `room_id`.
+solution_sql: |
+  SELECT b.room_id,
+         count(DISTINCT b.id) AS bookings,
+         count(*) AS uncovered_nights
+  FROM bookings b
+  JOIN rooms r ON r.id = b.room_id
+  CROSS JOIN LATERAL generate_series(b.check_in, b.check_out - 1, interval '1 day') AS n(d)
+  WHERE b.status = 'confirmed'
+    AND n.d < '2025-01-01'
+    AND NOT EXISTS (
+      SELECT 1 FROM rate_cards c
+      WHERE c.room_type = r.type AND n.d::date BETWEEN c.valid_from AND c.valid_to)
+  GROUP BY b.room_id
+  ORDER BY b.room_id
+compare: {order_matters: true}
+hints:
+  - "Expand every stay into one row per night (generate_series from check_in to check_out - 1), then test each night against the cards."
+  - "'No card contains this night' is an anti-join: NOT EXISTS with BETWEEN valid_from AND valid_to (inclusive)."
+  - "Stays that run into 2025 are partly outside the question: cut the nights at 2024-12-31."
+trap: |
+  Finding the bookings that merely overlap the gap and summing their whole length overstates the uncovered nights (room 36: 11 nights instead of 10, room 12: 12 instead of 8, room 8: 9 instead of 7): only the nights that really fall inside 1-14 September are uncovered.
+  Working with nights, not stays, is the point - and it also catches any other hole in the cards without hard-coding the dates.
+followup: |
+  "How much revenue did those nights bring, using the booking's own nightly_rate?" Same row-per-night CTE, sum(nightly_rate) - the price was recorded on the booking even though the price list had a hole.

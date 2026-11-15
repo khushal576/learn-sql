@@ -1,0 +1,140 @@
+sets:
+  - id: mock-13
+    title: "Freight network analyst - the Q1 operations review"
+    domain: logistics
+    minutes: 45
+    intro: |
+      Hi, I'm Dana, head of network operations at **Tessera Freight**, a regional parcel carrier. You are interviewing for the analyst role on my team and
+      today you are our SQL person for the quarterly review. Our data lives in one database: `hubs` (30 hubs), `routes` (directed roads between hubs),
+      `drivers` and `trips` (everything we drove in 2024).
+
+      The review has three parts. First the board wants the hard numbers for the first quarter, hub by hub. Then I want to know where the
+      delays come from month by month, and finally I would like to understand how far a parcel has to hop through our road graph before it reaches every
+      hub from the main hub 1. Take them in order - the data is messy in the usual ways (cancelled trips have no fare, the road graph has loops).
+    questions: [mk-037, mk-038, mk-039]
+  - id: mock-14
+    title: "Driver operations lead - staffing and mileage"
+    domain: logistics
+    minutes: 45
+    intro: |
+      I'm Marek, operations lead for the driver pool at **Tessera Freight**. The tables you will use are `hubs`, `drivers` (each driver belongs to a home hub) and
+      `trips` (2024; a cancelled trip has a NULL fare, and it never drove, so its km do not count as driven distance).
+
+      I have three small jobs for today. First a staffing check - which hubs are thin on experienced drivers. Then I want to recognise each driver's most remarkable trip, and finally
+      a mileage milestone programme: drivers get a service award the moment their kilometres driven reach a threshold. Work through them in order.
+    questions: [mk-040, mk-041, mk-042]
+  - id: mock-15
+    title: "Network resilience engineer - roads, regions and routes"
+    domain: logistics
+    minutes: 45
+    intro: |
+      Welcome. I'm Priya, I run network planning at **Tessera Freight**. We are worried about how resilient our road network is, and you will work on three
+      aspects with me: the `routes` table (a directed graph between our 30 `hubs` - some roads are stored in both directions, some in only one), the geographic
+      `regions` tree (world > country > state > city; hubs only sit in cities) and how many alternative ways exist to reach a hub from the main hub 1.
+
+      Start with the one-way roads, then the regional coverage, and finish with the alternative routes. The graph has loops - be careful.
+    questions: [mk-043, mk-044, mk-045]
+  - id: mock-16
+    title: "Hotel revenue analyst - rates, nights and gaps"
+    domain: hotel
+    minutes: 45
+    intro: |
+      Hello, I'm Elena, revenue manager at the **Grand Meridian** (40 rooms: singles, doubles and suites). You are interviewing for our revenue analyst job and today you will use
+      `rooms`, `bookings` (a stay occupies the nights from `check_in` up to the night BEFORE `check_out`, the guest leaves on the morning of `check_out`) and `rate_cards`
+      (seasonal prices per room type; both ends of a card are inclusive).
+
+      Three questions: first what June looked like in money, then whether our price list is complete (I have a feeling we forgot something), and finally how many nights we actually sold without a valid price card.
+    questions: [mk-046, mk-047, mk-048]
+  - id: mock-17
+    title: "Front desk manager - overbooking and maintenance audit"
+    domain: hotel
+    minutes: 45
+    intro: |
+      I'm Tomas, front desk manager at the **Grand Meridian**. Last week two guests were handed the same room key and I want you, as our data analyst, to audit the data
+      (`guests`, `rooms`, `bookings`, `maintenance`). Remember the two conventions: a booking's `check_out` is the morning the guest leaves (exclusive), while a maintenance window
+      is out of service from `start_date` through `end_date` - **both days included**. Cancelled and no-show bookings never block a room.
+
+      We start with a guest list for the loyalty team, then check the maintenance schedule against real stays, and last I want to know how smooth our room turnover is.
+    questions: [mk-049, mk-050, mk-051]
+  - id: mock-18
+    title: "Hotel operations analyst - occupancy, loyalty and free nights"
+    domain: hotel
+    minutes: 45
+    intro: |
+      I'm Ravi, general manager of the **Grand Meridian** and today I interview you for our operations analytics seat. We will use `rooms`, `guests`, `bookings` and `maintenance`.
+      As always: `check_out` is the morning the guest leaves (that night is NOT occupied), cancelled and no-show bookings do not occupy a room, and a maintenance window blocks the room from `start_date` through `end_date`, both inclusive.
+
+      Plan: a quick occupancy snapshot for a single night, then a look at our best guests and how long they stay away between visits, and finally the question I really care about - how many nights per room were still free in September, so sales can sell them.
+    questions: [mk-052, mk-053, mk-054]
+  - id: mock-19
+    title: "Growth analyst - customer activation and reorders"
+    domain: ecommerce
+    minutes: 45
+    intro: |
+      Hi, I'm Shreya, head of growth at an online shop that sells electronics, home goods, clothing and books to customers in eight countries. You are interviewing for our
+      growth analyst role; the tables are `customers`, `orders` (from 2023-01-01; status `placed`, `shipped`, `delivered`, `returned` or `cancelled`) and `order_items`.
+
+      We are trying to understand our customer base from three angles: who never really became a customer, how the base renews itself over the first months of 2023,
+      and which customers reorder in quick bursts. Unless a question says otherwise, a **cancelled** order is not a purchase.
+    questions: [mk-055, mk-056, mk-057]
+  - id: mock-20
+    title: "Category manager - reviews, revenue and decline"
+    domain: ecommerce
+    minutes: 45
+    intro: |
+      I'm Jonas, category manager at the online shop. We sell 120 products in a small category tree (Electronics > Computers > Laptops, Home > Kitchen, ...; top-level categories have no parent).
+      You will work with `products`, `categories`, `reviews`, `orders` and `order_items` (revenue of a line is `quantity * unit_price`; a cancelled order earns nothing and neither does a returned one).
+
+      Three tasks: the review profile of our phone-, laptop- and desktop-type products, the revenue of each top-level category, and finally which Electronics products are losing money year over year.
+    questions: [mk-058, mk-059, mk-060]
+  - id: mock-21
+    title: "Retail bank analyst - account activity and balances"
+    domain: bank
+    minutes: 45
+    intro: |
+      Good morning, I'm Hannah from the retail analytics team at a mid-sized bank. You will be working with `customers`, `accounts` (checking, savings, credit; some closed) and
+      `transactions` for 2024. The `amount` of a transaction is **signed**: money in is positive, money out is negative. Transaction kinds are deposit, withdrawal, purchase, fee and interest -
+      only the first three are initiated by the customer, fees and interest are posted by the bank.
+
+      My three questions: first a compliance check on closed accounts, then a balance report for one account that the audit team picked, and finally a loyalty analysis of customers who keep using their card month after month.
+    questions: [mk-061, mk-062, mk-063]
+  - id: mock-22
+    title: "Credit risk analyst - the loan book"
+    domain: bank
+    minutes: 45
+    intro: |
+      I'm Omar from the credit risk team. We lend to retail, premium and business customers. Relevant tables: `customers` (with `segment`), `accounts` (a customer can hold several accounts),
+      `loans` (principal, annual interest rate in percent, start date, term in months, status `active`, `paid` or `defaulted`).
+
+      Three things on my list today: the size of the active loan book per segment, a data-quality check on loans that should have ended by now but are still marked active, and finally the first year of the repayment schedule of one loan so we can double-check what the core system prints.
+    questions: [mk-064, mk-065, mk-066]
+  - id: mock-23
+    title: "Product analyst - onboarding and sessions"
+    domain: events
+    minutes: 45
+    intro: |
+      Hi, I'm Lena, head of product analytics at a SaaS company. You'll work with our clickstream: `users` (800 sign-ups with a `plan`, a `tz` time zone and a `tags` array), `events`
+      (about 24,000 events between 2024-01-01 and 2024-04-30, UTC; names like `signup`, `activated`, `page_view`, `feature_used`, `purchase`) and `purchases`. All timestamps are `timestamptz` - **think in UTC** unless a question says otherwise.
+
+      I have three questions about onboarding: first a quick data-quality count on the user tags, then the weekly activation rate of new sign-ups, and last how long people stay in a session.
+    questions: [mk-067, mk-068, mk-069]
+  - id: mock-24
+    title: "Growth data scientist - revenue, coupons and local-time streaks"
+    domain: events
+    minutes: 45
+    intro: |
+      I'm Kofi, data lead for a SaaS product. The data is the usual: `users` (each with an IANA time zone `tz`), `events` (2024-01-01 to 2024-04-30, `props` is jsonb with nested keys, some JSON nulls)
+      and `purchases` (amount in the buyer's `currency`). Timestamps are `timestamptz`; unless I say otherwise, months and days are **in UTC**.
+
+      Today: the revenue picture per currency, how often coupons were used (careful with JSON nulls), and finally which users keep a daily habit - measured in *their own* local days.
+    questions: [mk-070, mk-071, mk-072]
+  - id: mock-25
+    title: "People analytics - pay, staffing and organisation"
+    domain: hr
+    minutes: 45
+    intro: |
+      I'm Claire, head of People Analytics at a 250-person company. The tables: `departments` (nine of them - Facilities is brand new and still empty), `employees` (a management tree: CEO id 1, five VPs
+      directly below, directors, then staff; `manager_id` points to the boss; `commission` is NULL for most people), `projects` and `project_assignments` (who works on which project, with hours).
+
+      Three questions for you: a compensation overview per department (careful with NULLs), a staffing check - who is not on any project - and a roll-up of each VP's whole organisation.
+    questions: [mk-073, mk-074, mk-075]

@@ -1,0 +1,30 @@
+id: rc-007
+title: How deep is each pallet nested?
+topic: recursive-cte
+tags:
+- recursive
+- tree
+- depth
+- max
+difficulty: medium
+dataset: logistics
+prompt: |
+  Packaging wants to know how deeply each **root pallet** is packed. The pallet itself is **level 1**, its cartons level 2, anything inside those level 3, and so on.
+
+  Return `pallet_id` and `max_level` (the deepest level found under that pallet), ordered by `pallet_id`.
+solution_sql: |
+  WITH RECURSIVE tree AS (
+    SELECT id AS pallet_id, id, 1 AS level FROM package_units WHERE parent_id IS NULL
+    UNION ALL
+    SELECT t.pallet_id, u.id, t.level + 1 FROM package_units u JOIN tree t ON u.parent_id = t.id
+  )
+  SELECT pallet_id, max(level) AS max_level FROM tree GROUP BY pallet_id ORDER BY pallet_id
+compare:
+  order_matters: true
+hints:
+- Add a `level` column that grows by 1 at every step.
+- The answer is a MAX over the finished recursion, grouped by pallet.
+trap: |
+  Two fixed joins (pallet > carton > item) stop at level 3 and report 3 for every pallet, but cartons also sit inside cartons, so all 8 pallets really reach level 4. Recursion measures the real depth.
+followup: |
+  "How many units sit at each level?" (group the recursion output by level instead of by pallet.)

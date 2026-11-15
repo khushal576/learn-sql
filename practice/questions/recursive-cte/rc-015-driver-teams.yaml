@@ -1,0 +1,43 @@
+id: rc-015
+title: Driver teams and their kilometres
+topic: recursive-cte
+tags:
+- recursive
+- hierarchy
+- rollup
+difficulty: hard
+dataset: logistics
+prompt: |
+  The fleet manager reviews the supervisor tree in `drivers` (driver 1 is on top). For **every driver** return:
+  - `level` in the tree (driver 1 = level 1),
+  - `subordinates`: how many drivers are below them at any depth (not counting themselves),
+  - `team_km`: total `km` of **done** trips (`status = 'done'`) driven by the driver **and everyone below them**.
+
+  Return `driver_id`, `level`, `subordinates`, `team_km`, ordered by `driver_id`. A driver with no done trips contributes 0.
+solution_sql: |
+  WITH RECURSIVE tree AS (
+    SELECT id AS boss, id, 1 AS rel FROM drivers
+    UNION ALL
+    SELECT t.boss, d.id, t.rel + 1 FROM drivers d JOIN tree t ON d.supervisor_id = t.id
+  ), lvl AS (
+    SELECT id, 1 AS level FROM drivers WHERE supervisor_id IS NULL
+    UNION ALL
+    SELECT d.id, l.level + 1 FROM drivers d JOIN lvl l ON d.supervisor_id = l.id
+  ), km AS (
+    SELECT driver_id, sum(km) AS k FROM trips WHERE status = 'done' GROUP BY driver_id
+  )
+  SELECT t.boss AS driver_id, l.level, count(*) - 1 AS subordinates, coalesce(sum(km.k), 0) AS team_km
+  FROM tree t
+  JOIN lvl l ON l.id = t.boss
+  LEFT JOIN km ON km.driver_id = t.id
+  GROUP BY t.boss, l.level
+  ORDER BY t.boss
+compare:
+  order_matters: true
+hints:
+- Build the (boss, member) pairs with one recursion; a second recursion (or the same one) gives the level.
+- Aggregate trips per driver first, then roll them up the pairs.
+trap: |
+  Counting direct reports (`supervisor_id = id`) gives driver 1 only 5 subordinates instead of 39, and rolling up only one level misses the third level's kilometres. Every driver must be summed with all of their descendants, and the driver's own trips are included (an anchor row per driver).
+followup: |
+  "Which team drives the most per head?" (team_km / (subordinates + 1).)

@@ -1,0 +1,28 @@
+id: pf-011
+title: The "latest orders" widget
+topic: performance
+tags: [order-by, limit, top-n, index]
+difficulty: hard
+dataset: perf
+prompt: |
+  The home page shows the **20 newest orders**. With 300 000 rows the widget sorts everything on every page view although `created_at` is indexed: a btree can hand rows back already sorted, so only 20 rows should ever be read.
+
+  Return `id`, `customer_id`, `created_at`, `amount` of the 20 most recent orders: `created_at` descending, ties broken by `id` ascending.
+  Check also looks at the query plan: no sequential scan of `orders` and no full sort.
+solution_sql: |
+  SELECT id, customer_id, created_at, amount FROM orders ORDER BY created_at DESC, id LIMIT 20
+check:
+  type: plan
+  must_use: ["Index Scan|Index Only Scan"]
+  must_not_use: ["Seq Scan on orders", "Sort", "Gather Merge"]
+  note: "the newest rows must come straight from the created_at index, without sorting the table"
+compare: {order_matters: true}
+hints:
+  - "The ORDER BY must sort by the indexed column itself, with the same direction the index can be read (a btree can be read backwards)."
+  - "Anything derived from `created_at` in the ORDER BY (a cast, a truncation) is a different sort key."
+trap: |
+  `ORDER BY created_at::date DESC, created_at DESC, id` ("newest day first, then time") yields the same 20 rows, but its first sort key is a derived value the index does not contain, so Postgres must compute it for all 300 000 rows and sort them (a top-N sort over a full scan). Plain `ORDER BY created_at DESC` + `LIMIT` lets the index return rows in order and stop after 20.
+followup: |
+  "Page 5,000 with `OFFSET 100000`: still fast?" (No: the index still walks and discards 100 000 rows. Use keyset pagination: `WHERE (created_at, id) < (last_created_at, last_id)`.)
+alternatives:
+  - "SELECT id, customer_id, created_at, amount FROM orders ORDER BY created_at DESC, id FETCH FIRST 20 ROWS ONLY"

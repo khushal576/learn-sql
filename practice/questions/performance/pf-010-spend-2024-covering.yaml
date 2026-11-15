@@ -1,0 +1,32 @@
+id: pf-010
+title: 2024 spend for a block of customers
+topic: performance
+tags: [covering-index, index-only-scan, composite-index, group-by]
+difficulty: medium
+dataset: perf
+prompt: |
+  Finance reviews customers **101 to 110** and wants, for orders created in **calendar year 2024**, each customer's number of orders and total amount. Customers without 2024 orders are not listed. The composite index `(customer_id, created_at) INCLUDE (amount)` can answer this without touching the table at all.
+
+  Return `customer_id`, `orders` (count), `total_amount` (sum of `amount`), ordered by `customer_id`.
+  Check also looks at the query plan: it must be an **index-only** plan.
+solution_sql: |
+  SELECT customer_id, count(*) AS orders, sum(amount) AS total_amount
+  FROM orders
+  WHERE customer_id BETWEEN 101 AND 110 AND created_at >= '2024-01-01' AND created_at < '2025-01-01'
+  GROUP BY customer_id ORDER BY customer_id
+check:
+  type: plan
+  must_use: ["Index Only Scan"]
+  must_not_use: ["Seq Scan on orders"]
+  note: "answer it from the composite index alone (an index-only plan)"
+compare: {order_matters: false}
+hints:
+  - "List the columns your query touches and compare them with the columns of the composite index (key columns + INCLUDE)."
+  - "Is there a way to count orders that needs no extra column?"
+trap: |
+  Counting with `count(DISTINCT id)` (or joining `customers` and selecting something from `orders` beyond `customer_id, created_at, amount`) returns the same figures but needs `orders.id`, which lives only in the table: the plan turns into a Bitmap Heap Scan plus a sort and the covering index is wasted. Ask only for columns the index holds; `count(*)` needs none.
+followup: |
+  "What does INCLUDE (amount) buy you over making amount a third key column?" (Included columns are payload only: no sort order, a smaller upper tree, and they allow index-only scans without affecting uniqueness or ordering.)
+alternatives:
+  - |
+    SELECT customer_id, count(created_at) AS orders, sum(amount) AS total_amount FROM orders WHERE customer_id >= 101 AND customer_id <= 110 AND created_at >= '2024-01-01' AND created_at < '2025-01-01' GROUP BY 1 ORDER BY 1

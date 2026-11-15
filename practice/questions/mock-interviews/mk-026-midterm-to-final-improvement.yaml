@@ -1,0 +1,31 @@
+id: mk-026
+title: Did the final improve on the midterm?
+topic: mock-interviews
+tags: [self-join, pivot, avg, population]
+difficulty: medium
+dataset: school
+prompt: |
+  Teachers wonder whether students improve between the midterm and the final. Look only at **completed** enrolments, where a student has both a midterm and a final score in the course. For each course compute the difference `final - midterm` per student and return:
+
+  - `course` (title), `completed_students` (students with both scores)
+  - `avg_improvement`: the average of the per-student differences, rounded to 2 decimals
+  - `improved`: how many students scored higher on the final than on the midterm
+
+  Keep courses with at least 10 completed students. Order by `avg_improvement` descending, then `course`.
+solution_sql: |
+  SELECT c.title AS course,
+         count(*) AS completed_students,
+         round(avg(f.score - m.score), 2) AS avg_improvement,
+         count(*) FILTER (WHERE f.score > m.score) AS improved
+  FROM enrollments e
+  JOIN courses c ON c.id = e.course_id
+  JOIN scores m ON m.student_id = e.student_id AND m.course_id = e.course_id AND m.exam = 'midterm'
+  JOIN scores f ON f.student_id = e.student_id AND f.course_id = e.course_id AND f.exam = 'final'
+  WHERE e.status = 'completed'
+  GROUP BY c.id, c.title
+  HAVING count(*) >= 10
+  ORDER BY avg_improvement DESC, c.title
+compare: {order_matters: true}
+hints: ['Each score is its own row: you need midterm and final of the same student and course side by side.', 'Are the two averages you compare computed over the same group of students?']
+trap: '`avg(final) - avg(midterm)` over a plain join mixes populations: active students have a midterm but no final yet, so their midterm scores lower the first average only. English III shows 4.26 instead of 5.08 and Biology II 1.55 instead of 2.55. Pair the two scores of the same student first, then average the per-student differences.'
+followup: '"Are these averages statistically meaningful with 11 students?" (No: report the spread as well, e.g. `stddev` of the differences, and be careful with rankings of small groups.)'

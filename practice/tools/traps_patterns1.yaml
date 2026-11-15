@@ -1,0 +1,190 @@
+ip-001:
+  wrong: |
+    WITH s AS (SELECT DISTINCT (ts AT TIME ZONE 'UTC')::date AS d FROM events WHERE name = 'signup'),
+    c AS (SELECT g::date AS day FROM generate_series((SELECT min(d) FROM s)::timestamp, (SELECT max(d) FROM s)::timestamp, interval '1 day') g)
+    SELECT day FROM c WHERE day NOT IN (SELECT d FROM s) ORDER BY day
+  right: |
+    SELECT c.d::date AS day
+    FROM generate_series('2024-01-01'::date, '2024-04-30'::date, interval '1 day') c(d)
+    LEFT JOIN (SELECT DISTINCT (ts AT TIME ZONE 'UTC')::date AS sd FROM events WHERE name = 'signup') s ON s.sd = c.d::date
+    WHERE s.sd IS NULL ORDER BY 1
+ip-002:
+  wrong: |
+    WITH g AS (SELECT id, ts, ts - lag(ts) OVER (ORDER BY ts, id) AS gap FROM events WHERE user_id = 9)
+    SELECT id AS event_id, ts AT TIME ZONE 'UTC' AS event_ts,
+           sum(CASE WHEN gap IS NULL OR gap >= interval '30 minutes' THEN 1 ELSE 0 END) OVER (ORDER BY ts, id) AS session_no
+    FROM g ORDER BY id
+  right: |
+    SELECT id AS event_id, ts AT TIME ZONE 'UTC' AS event_ts,
+           count(*) FILTER (WHERE p IS NULL OR extract(epoch FROM ts - p) > 1800) OVER (ORDER BY ts, id) AS session_no
+    FROM (SELECT id, ts, lag(ts) OVER (ORDER BY ts, id) AS p FROM events WHERE user_id = 9) t
+    ORDER BY id
+ip-003:
+  wrong: |
+    WITH g AS (SELECT user_id, ts, CASE WHEN ts - lag(ts) OVER w > interval '30 minutes' THEN 1 ELSE 0 END AS starts
+               FROM events WHERE user_id <= 20 WINDOW w AS (PARTITION BY user_id ORDER BY ts, id))
+    SELECT user_id, sum(starts) AS sessions, min(ts) AT TIME ZONE 'UTC' AS first_event_at, max(ts) AT TIME ZONE 'UTC' AS last_event_at
+    FROM g GROUP BY user_id ORDER BY user_id
+  right: |
+    SELECT user_id, count(*) FILTER (WHERE gap IS NULL OR gap > interval '30 minutes') AS sessions,
+           min(ts) AT TIME ZONE 'UTC' AS first_event_at, max(ts) AT TIME ZONE 'UTC' AS last_event_at
+    FROM (SELECT user_id, ts, ts - lag(ts) OVER (PARTITION BY user_id ORDER BY ts, id) AS gap FROM events WHERE user_id <= 20) t
+    GROUP BY user_id ORDER BY user_id
+ip-004:
+  wrong: |
+    WITH g AS (SELECT user_id, id, ts, CASE WHEN lag(ts) OVER w IS NULL OR ts - lag(ts) OVER w >= interval '30 minutes' THEN 1 ELSE 0 END AS starts
+               FROM events WHERE user_id <= 20 WINDOW w AS (PARTITION BY user_id ORDER BY ts, id)),
+    s AS (SELECT *, sum(starts) OVER (PARTITION BY user_id ORDER BY ts, id) AS session_no FROM g),
+    ps AS (SELECT user_id, session_no, count(*) AS n, extract(epoch FROM max(ts) - min(ts)) / 60 AS minutes FROM s GROUP BY user_id, session_no)
+    SELECT user_id, count(*) AS sessions, round(avg(n), 2) AS avg_events_per_session, round(max(minutes), 1) AS longest_session_minutes
+    FROM ps GROUP BY user_id ORDER BY user_id
+  right: |
+    WITH e AS (SELECT user_id, ts, ts - lag(ts) OVER (PARTITION BY user_id ORDER BY ts, id) AS gap FROM events WHERE user_id <= 20),
+    k AS (SELECT user_id, ts, count(*) FILTER (WHERE gap IS NULL OR gap > interval '30 minutes') OVER (PARTITION BY user_id ORDER BY ts ROWS UNBOUNDED PRECEDING) AS sn FROM e),
+    p AS (SELECT user_id, sn, count(*) AS n, extract(epoch FROM max(ts) - min(ts)) / 60 AS m FROM k GROUP BY 1, 2)
+    SELECT user_id, count(*) AS sessions, round(sum(n)::numeric / count(*), 2) AS avg_events_per_session, round(max(m)::numeric, 1) AS longest_session_minutes
+    FROM p GROUP BY user_id ORDER BY user_id
+ip-005:
+  wrong: |
+    WITH i AS (SELECT user_id, (ts AT TIME ZONE 'UTC')::date - (row_number() OVER (PARTITION BY user_id ORDER BY ts, id))::int AS island
+               FROM events WHERE user_id <= 30),
+    s AS (SELECT user_id, island, count(*) AS days FROM i GROUP BY user_id, island)
+    SELECT user_id, max(days) AS longest_streak_days FROM s GROUP BY user_id ORDER BY longest_streak_days DESC, user_id
+  right: |
+    WITH d AS (SELECT DISTINCT user_id, (ts AT TIME ZONE 'UTC')::date AS day FROM events WHERE user_id <= 30),
+    i AS (SELECT user_id, day, day - (dense_rank() OVER (PARTITION BY user_id ORDER BY day))::int AS island FROM d),
+    s AS (SELECT user_id, island, max(day) - min(day) + 1 AS days FROM i GROUP BY user_id, island)
+    SELECT user_id, max(days) AS longest_streak_days FROM s GROUP BY user_id ORDER BY 2 DESC, 1
+ip-006:
+  wrong: |
+    WITH d AS (SELECT DISTINCT user_id, (ts AT TIME ZONE 'UTC')::date AS day FROM events),
+    i AS (SELECT user_id, day - (row_number() OVER (PARTITION BY user_id ORDER BY day))::int AS island FROM d),
+    s AS (SELECT user_id, island, count(*) AS days FROM i GROUP BY user_id, island)
+    SELECT count(*) AS users_with_badge FROM s WHERE days >= 7
+  right: |
+    SELECT count(DISTINCT user_id) AS users_with_badge
+    FROM (SELECT user_id, count(*) OVER (PARTITION BY user_id ORDER BY day RANGE BETWEEN CURRENT ROW AND INTERVAL '6 days' FOLLOWING) AS n
+          FROM (SELECT DISTINCT user_id, (ts AT TIME ZONE 'UTC')::date AS day FROM events) d) t
+    WHERE n = 7
+ip-007:
+  wrong: |
+    SELECT user_id, min(started_on) AS span_start, max(ended_on) AS span_end
+    FROM subscriptions
+    WHERE user_id IN (SELECT user_id FROM subscriptions GROUP BY user_id HAVING count(*) > 1)
+    GROUP BY user_id ORDER BY user_id, span_start
+  right: |
+    SELECT s.user_id, s.started_on AS span_start,
+           CASE WHEN n.id IS NOT NULL THEN n.ended_on ELSE s.ended_on END AS span_end
+    FROM subscriptions s
+    LEFT JOIN subscriptions n ON n.user_id = s.user_id AND n.started_on = s.ended_on + 1
+    WHERE s.user_id IN (SELECT user_id FROM subscriptions GROUP BY user_id HAVING count(*) > 1)
+      AND NOT EXISTS (SELECT 1 FROM subscriptions p WHERE p.user_id = s.user_id AND p.ended_on + 1 = s.started_on)
+    ORDER BY s.user_id, s.started_on
+ip-008:
+  wrong: |
+    SELECT user_id, prev_ended_on, started_on AS next_started_on, started_on - prev_ended_on AS idle_days
+    FROM (SELECT user_id, started_on, lag(ended_on) OVER (PARTITION BY user_id ORDER BY started_on) AS prev_ended_on FROM subscriptions) t
+    WHERE prev_ended_on IS NOT NULL AND started_on - prev_ended_on > 0
+    ORDER BY user_id
+  right: |
+    SELECT a.user_id, a.ended_on AS prev_ended_on, b.started_on AS next_started_on, b.started_on - a.ended_on - 1 AS idle_days
+    FROM subscriptions a JOIN subscriptions b ON b.user_id = a.user_id AND b.started_on > a.ended_on
+    WHERE b.started_on - a.ended_on > 1
+      AND NOT EXISTS (SELECT 1 FROM subscriptions c WHERE c.user_id = a.user_id AND c.started_on > a.ended_on AND c.started_on < b.started_on)
+    ORDER BY a.user_id
+ip-009:
+  wrong: |
+    WITH i AS (SELECT account_id, extract(month FROM tx_date)::int - (row_number() OVER (PARTITION BY account_id ORDER BY tx_date, id))::int AS island
+               FROM transactions WHERE kind = 'deposit' AND account_id <= 30),
+    r AS (SELECT account_id, count(*) AS len FROM i GROUP BY account_id, island)
+    SELECT account_id, max(len) AS longest_run_months FROM r GROUP BY account_id ORDER BY longest_run_months DESC, account_id
+  right: |
+    WITH m AS (SELECT DISTINCT account_id, extract(month FROM tx_date)::int AS mo FROM transactions WHERE kind = 'deposit' AND account_id <= 30),
+    f AS (SELECT account_id, mo, CASE WHEN mo - lag(mo) OVER (PARTITION BY account_id ORDER BY mo) = 1 THEN 0 ELSE 1 END AS st FROM m),
+    g AS (SELECT account_id, sum(st) OVER (PARTITION BY account_id ORDER BY mo) AS run FROM f),
+    c AS (SELECT account_id, run, count(*) AS n FROM g GROUP BY 1, 2)
+    SELECT account_id, max(n) AS longest_run_months FROM c GROUP BY 1 ORDER BY 2 DESC, 1
+ip-010:
+  wrong: |
+    WITH e AS (SELECT user_id, id, ts, device,
+                      CASE WHEN lag(id) OVER w IS NULL OR device <> lag(device) OVER w THEN 1 ELSE 0 END AS changed
+               FROM events WHERE user_id <= 10 WINDOW w AS (PARTITION BY user_id ORDER BY ts, id)),
+    g AS (SELECT *, sum(changed) OVER (PARTITION BY user_id ORDER BY ts, id) AS run_no FROM e)
+    SELECT user_id, run_no, device, min(ts) AT TIME ZONE 'UTC' AS first_event_at, max(ts) AT TIME ZONE 'UTC' AS last_event_at, count(*) AS events
+    FROM g GROUP BY user_id, run_no, device ORDER BY user_id, run_no
+  right: |
+    WITH e AS (SELECT user_id, id, ts, device, lag(device) OVER w AS pd, lag(id) OVER w AS pid
+               FROM events WHERE user_id <= 10 WINDOW w AS (PARTITION BY user_id ORDER BY ts, id)),
+    g AS (SELECT *, count(*) FILTER (WHERE pid IS NULL OR NOT (device IS NOT DISTINCT FROM pd)) OVER (PARTITION BY user_id ORDER BY ts, id) AS run_no FROM e)
+    SELECT user_id, run_no, device, min(ts) AT TIME ZONE 'UTC' AS first_event_at, max(ts) AT TIME ZONE 'UTC' AS last_event_at, count(*) AS events
+    FROM g GROUP BY user_id, run_no, device ORDER BY user_id, run_no
+ip-011:
+  wrong: |
+    WITH d AS (SELECT DISTINCT user_id, (ts AT TIME ZONE 'UTC')::date AS day FROM events WHERE user_id <= 120),
+    i AS (SELECT user_id, day, day - (row_number() OVER (PARTITION BY user_id ORDER BY day))::int AS island FROM d),
+    s AS (SELECT user_id, min(day) AS streak_start, max(day) AS streak_end, count(*) AS streak_days FROM i GROUP BY user_id, island),
+    r AS (SELECT *, rank() OVER (PARTITION BY user_id ORDER BY streak_days DESC) AS rk FROM s)
+    SELECT user_id, streak_start, streak_end, streak_days FROM r WHERE rk = 1 AND streak_days >= 5 ORDER BY user_id, streak_start
+  right: |
+    WITH d AS (SELECT DISTINCT user_id, (ts AT TIME ZONE 'UTC')::date AS day FROM events WHERE user_id <= 120),
+    f AS (SELECT user_id, day, CASE WHEN day - lag(day) OVER (PARTITION BY user_id ORDER BY day) = 1 THEN 0 ELSE 1 END AS st FROM d),
+    g AS (SELECT user_id, day, sum(st) OVER (PARTITION BY user_id ORDER BY day) AS run FROM f),
+    s AS (SELECT user_id, run, min(day) AS a, max(day) AS b, count(*) AS n FROM g GROUP BY 1, 2)
+    SELECT user_id, streak_start, streak_end, streak_days FROM (
+      SELECT DISTINCT ON (user_id) user_id, a AS streak_start, b AS streak_end, n AS streak_days
+      FROM s ORDER BY user_id, n DESC, a) b
+    WHERE streak_days >= 5 ORDER BY user_id
+ip-012:
+  wrong: |
+    WITH d AS (SELECT DISTINCT user_id, (ts AT TIME ZONE 'UTC')::date AS day FROM events WHERE user_id <= 300),
+    i AS (SELECT user_id, day - (row_number() OVER (PARTITION BY user_id ORDER BY day))::int AS island FROM d),
+    s AS (SELECT user_id, island, count(*) AS days FROM i GROUP BY user_id, island)
+    SELECT user_id, count(*) AS long_streaks FROM s GROUP BY user_id HAVING count(*) >= 2 ORDER BY long_streaks DESC, user_id
+  right: |
+    WITH d AS (SELECT DISTINCT user_id, (ts AT TIME ZONE 'UTC')::date AS day FROM events WHERE user_id <= 300),
+    f AS (SELECT user_id, day, CASE WHEN day - lag(day) OVER (PARTITION BY user_id ORDER BY day) = 1 THEN 0 ELSE 1 END AS st FROM d),
+    g AS (SELECT user_id, sum(st) OVER (PARTITION BY user_id ORDER BY day) AS run FROM f),
+    c AS (SELECT user_id, run FROM g GROUP BY user_id, run HAVING count(*) >= 3)
+    SELECT user_id, count(*) AS long_streaks FROM c GROUP BY user_id HAVING count(*) >= 2 ORDER BY 2 DESC, 1
+ip-013:
+  wrong: |
+    WITH r AS (SELECT customer_id, status, id - row_number() OVER (PARTITION BY customer_id, status ORDER BY id) AS island FROM orders WHERE customer_id <= 60),
+    s AS (SELECT customer_id, island, count(*) AS len FROM r WHERE status = 'delivered' GROUP BY customer_id, island)
+    SELECT customer_id, max(len) AS longest_run FROM s GROUP BY customer_id ORDER BY longest_run DESC, customer_id
+  right: |
+    WITH o AS (SELECT customer_id, status, row_number() OVER (PARTITION BY customer_id ORDER BY id) AS pos FROM orders WHERE customer_id <= 60),
+    f AS (SELECT customer_id, pos, status, CASE WHEN lag(status) OVER (PARTITION BY customer_id ORDER BY pos) = status THEN 0 ELSE 1 END AS st FROM o),
+    g AS (SELECT *, sum(st) OVER (PARTITION BY customer_id ORDER BY pos) AS run FROM f),
+    c AS (SELECT customer_id, run, count(*) AS len FROM g WHERE status = 'delivered' GROUP BY 1, 2)
+    SELECT customer_id, max(len) AS longest_run FROM c GROUP BY 1 ORDER BY 2 DESC, 1
+ip-014:
+  wrong: |
+    WITH g AS (SELECT user_id, id, ts, CASE WHEN lag(ts) OVER w IS NULL OR ts - lag(ts) OVER w > interval '30 minutes' THEN 1 ELSE 0 END AS starts
+               FROM events WHERE user_id <= 40 WINDOW w AS (PARTITION BY user_id ORDER BY ts, id)),
+    s AS (SELECT *, sum(starts) OVER (PARTITION BY user_id ORDER BY ts, id) AS session_no FROM g),
+    ss AS (SELECT user_id, session_no, min(ts) AS st FROM s GROUP BY 1, 2)
+    SELECT ss.user_id, ss.session_no, ss.st AT TIME ZONE 'UTC' AS session_start, p.ts AT TIME ZONE 'UTC' AS first_purchase_at,
+           extract(epoch FROM p.ts - ss.st)::int AS seconds_to_purchase
+    FROM ss JOIN s ON s.user_id = ss.user_id AND s.session_no = ss.session_no
+    JOIN events p ON p.id = s.id AND p.name = 'purchase'
+    ORDER BY 1, 2
+  right: |
+    WITH e AS (SELECT user_id, ts, name, ts - lag(ts) OVER (PARTITION BY user_id ORDER BY ts, id) AS gap FROM events WHERE user_id <= 40),
+    k AS (SELECT user_id, ts, name, count(*) FILTER (WHERE gap IS NULL OR gap > interval '30 minutes') OVER (PARTITION BY user_id ORDER BY ts ROWS UNBOUNDED PRECEDING) AS sn FROM e),
+    p AS (SELECT user_id, sn, min(ts) AS st, min(ts) FILTER (WHERE name = 'purchase') AS fp FROM k GROUP BY 1, 2)
+    SELECT user_id, sn AS session_no, st AT TIME ZONE 'UTC' AS session_start, fp AT TIME ZONE 'UTC' AS first_purchase_at, extract(epoch FROM fp - st)::int AS seconds_to_purchase
+    FROM p WHERE fp IS NOT NULL ORDER BY user_id, sn
+ip-015:
+  wrong: |
+    WITH d AS (SELECT DISTINCT user_id, (ts AT TIME ZONE 'UTC')::date AS day FROM events WHERE user_id <= 60),
+    i AS (SELECT user_id, day, day - (row_number() OVER (PARTITION BY user_id ORDER BY day))::int AS island FROM d),
+    s AS (SELECT user_id, min(day) AS streak_start, max(day) AS streak_end, count(*) AS streak_days FROM i GROUP BY user_id, island),
+    l AS (SELECT *, streak_start - lag(streak_end) OVER (PARTITION BY user_id ORDER BY streak_start) AS silent_days_before FROM s)
+    SELECT user_id, streak_start, streak_end, streak_days, silent_days_before FROM l WHERE streak_days >= 3 ORDER BY user_id, streak_start
+  right: |
+    WITH d AS (SELECT DISTINCT user_id, (ts AT TIME ZONE 'UTC')::date AS day FROM events WHERE user_id <= 60),
+    f AS (SELECT user_id, day, lag(day) OVER (PARTITION BY user_id ORDER BY day) AS pd FROM d),
+    g AS (SELECT user_id, day, pd, sum(CASE WHEN pd IS NULL OR day - pd > 1 THEN 1 ELSE 0 END) OVER (PARTITION BY user_id ORDER BY day) AS run FROM f),
+    s AS (SELECT user_id, run, min(day) AS a, max(day) AS b, count(*) AS n, (array_agg(pd ORDER BY day))[1] AS last_before FROM g GROUP BY user_id, run)
+    SELECT user_id, a AS streak_start, b AS streak_end, n AS streak_days, a - last_before - 1 AS silent_days_before
+    FROM s WHERE n >= 3 ORDER BY user_id, a

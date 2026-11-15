@@ -1,0 +1,29 @@
+id: mk-037
+title: "Q1 numbers per departure hub"
+topic: mock-interviews
+tags: ["group-by", "dates", "null"]
+difficulty: easy
+dataset: logistics
+prompt: |
+  The board pack needs the first quarter of 2024 (1 January up to and including 31 March) for every hub that trips **departed from** (`from_hub`).
+  For each such hub return `hub_id`, `trips` (all trips that started in the quarter, cancelled ones included), `cancelled_trips`, and `avg_fare` - the average
+  fare of the trips that were not cancelled, rounded to 2 decimals. Order by `hub_id`.
+solution_sql: |
+  SELECT from_hub AS hub_id,
+         count(*) AS trips,
+         count(*) FILTER (WHERE status = 'cancelled') AS cancelled_trips,
+         round(avg(fare), 2) AS avg_fare
+  FROM trips
+  WHERE started_at >= '2024-01-01' AND started_at < '2024-04-01'
+  GROUP BY from_hub
+  ORDER BY from_hub
+compare: {order_matters: true}
+hints:
+  - "`started_at` is a timestamp, not a date: think about what '2024-03-31' means as a timestamp."
+  - "Cancelled trips have a NULL fare - an aggregate such as avg() skips NULLs, so you do not need a special filter for it."
+  - "A half-open range (>= start AND < next day after the end) never loses the last day."
+trap: |
+  `BETWEEN '2024-01-01' AND '2024-03-31'` compares against midnight at the START of 31 March, so every trip that started later that day is lost: 8 trips
+  (745 trips in the quarter, the wrong query counts 737). Use `>= '2024-01-01' AND < '2024-04-01'`, or cast to date.
+followup: |
+  "The board wants the same table per month instead." Group by date_trunc('month', started_at) - and the same half-open logic keeps working for any bucket size.

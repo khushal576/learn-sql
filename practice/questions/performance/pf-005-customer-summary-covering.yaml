@@ -1,0 +1,30 @@
+id: pf-005
+title: Customer summary without touching the table
+topic: performance
+tags: [covering-index, index-only-scan, aggregate]
+difficulty: medium
+dataset: perf
+prompt: |
+  The customer card shows a small summary of **customer 123**: how many orders they have, the total amount, and the dates of their first and last order. It must be instant: the table has a composite index on `(customer_id, created_at)` that also carries `amount`, so everything needed lives in the index.
+
+  Return one row with `orders` (count), `total_amount` (sum of `amount`), `first_order` (earliest `created_at`), `last_order` (latest `created_at`).
+  Check also looks at the query plan: it must be an **index-only** plan.
+solution_sql: |
+  SELECT count(*) AS orders, sum(amount) AS total_amount, min(created_at) AS first_order, max(created_at) AS last_order
+  FROM orders WHERE customer_id = 123
+check:
+  type: plan
+  must_use: ["Index Only Scan"]
+  must_not_use: ["Seq Scan on orders"]
+  note: "answer it from the index alone (an index-only plan)"
+compare: {order_matters: false}
+hints:
+  - "An Index Only Scan is possible only if every column the query touches is stored in the index. Which columns does the composite index hold?"
+  - "Does `count(*)` need any column at all?"
+trap: |
+  `count(id)` returns the same number as `count(*)` (id is never null), but `id` is not in the index, so Postgres must visit the table row by row (a Bitmap Heap Scan) instead of answering from the index. Same for any harmless-looking extra column in the select list or a `WHERE status IS NOT NULL`. Touch only `customer_id`, `created_at`, `amount`.
+followup: |
+  "Why does an Index Only Scan still sometimes show heap fetches?" (The visibility map: pages with recently changed rows must be checked in the table until VACUUM marks them all-visible.)
+alternatives:
+  - |
+    SELECT count(created_at) AS orders, sum(amount) AS total_amount, min(created_at) AS first_order, max(created_at) AS last_order FROM orders WHERE customer_id = 123

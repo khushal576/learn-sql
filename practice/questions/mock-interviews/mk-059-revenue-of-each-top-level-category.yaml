@@ -1,0 +1,35 @@
+id: mk-059
+title: "Revenue of each top-level category"
+topic: mock-interviews
+tags: ["recursive", "tree", "rollup", "left-join"]
+difficulty: medium
+dataset: ecommerce
+prompt: |
+  Jonas: "What does each top-level category earn?" Products sit in the **leaf** categories of the tree (Laptops, Kitchen, Men, ...), but the question is about the four top-level categories (those without a parent): every product counts towards the top-level ancestor of its category.
+  Only orders with status `shipped` or `delivered` earn revenue; revenue of a line is `quantity * unit_price`.
+  Return `category` (the top-level category name) and `revenue`, ordered by `revenue` descending, then `category`.
+solution_sql: |
+  WITH RECURSIVE tree AS (
+    SELECT id, id AS root FROM categories WHERE parent_id IS NULL
+    UNION ALL
+    SELECT c.id, t.root FROM categories c JOIN tree t ON c.parent_id = t.id
+  )
+  SELECT top.name AS category,
+         coalesce(sum(i.quantity * i.unit_price) FILTER (WHERE o.status IN ('shipped', 'delivered')), 0) AS revenue
+  FROM categories top
+  JOIN tree t ON t.root = top.id
+  LEFT JOIN products p ON p.category_id = t.id
+  LEFT JOIN order_items i ON i.product_id = p.id
+  LEFT JOIN orders o ON o.id = i.order_id
+  WHERE top.parent_id IS NULL
+  GROUP BY top.id, top.name
+  ORDER BY revenue DESC, top.name
+compare: {order_matters: true}
+hints:
+  - "Map every category to its top-level ancestor with a recursive CTE (anchor: categories without parent, carry the root id down)."
+  - "Join products to that mapping, not directly to the top-level category."
+  - "The status condition decides which order lines earn revenue: apply it to the order, not to the product."
+trap: |
+  Joining products directly to the top-level category (`p.category_id = top.id`) matches only Books, whose products sit directly in a top-level category: Electronics, Home and Clothing all show 0 revenue instead of 3,243,257.00 / 2,574,101.00 / 1,610,687.00.
+followup: |
+  "Add the share of each category in the total." Window sum over the grouped result: revenue / sum(revenue) OVER ().

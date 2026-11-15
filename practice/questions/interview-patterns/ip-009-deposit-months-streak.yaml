@@ -1,0 +1,38 @@
+id: ip-009
+title: Longest run of months with a deposit
+topic: interview-patterns
+tags: [gaps-and-islands, streak, months, dedupe]
+difficulty: medium
+dataset: bank
+prompt: |
+  The bank rewards regular savers. A month counts for an account when it has **at least one `deposit` transaction** in that **calendar month of 2024**. For **accounts 1 to 30**, find the **longest run of consecutive months** with a deposit.
+
+  Return `account_id`, `longest_run_months`, ordered by `longest_run_months` descending, then `account_id`.
+solution_sql: |
+  WITH m AS (
+    SELECT DISTINCT account_id, extract(month FROM tx_date)::int AS mo
+    FROM transactions
+    WHERE kind = 'deposit' AND account_id <= 30),
+  i AS (
+    SELECT account_id, mo - (row_number() OVER (PARTITION BY account_id ORDER BY mo))::int AS island FROM m),
+  r AS (
+    SELECT account_id, count(*) AS len FROM i GROUP BY account_id, island)
+  SELECT account_id, max(len) AS longest_run_months
+  FROM r
+  GROUP BY account_id
+  ORDER BY longest_run_months DESC, account_id
+compare: {order_matters: true}
+hints:
+  - "Reduce to one row per account and month first: only then does 'month number minus row number' identify a run."
+  - "All transactions are in 2024, so the month number 1-12 is enough as the sequence."
+trap: |
+  Numbering the deposits instead of the distinct months: an account with two deposits in one month makes row_number grow faster than the month, the difference changes inside what is really one run, and the run is cut. Account 18, whose deposits really cover 2 consecutive months at best, is reported with a run of 4 by a naive count that mixes the two levels, and several other accounts change too. One row per (account, month) must exist before the island trick.
+followup: |
+  "What if the data spanned several years?" (Use a continuous month index, e.g. `year*12 + month`, so December to January stays consecutive.) "Same for weeks?" (`date_trunc('week', d)` and divide the difference by 7, or use an index of weeks since a fixed Monday.)
+alternatives:
+  - |
+    WITH m AS (SELECT DISTINCT account_id, extract(month FROM tx_date)::int AS mo FROM transactions WHERE kind = 'deposit' AND account_id <= 30),
+    f AS (SELECT account_id, mo, CASE WHEN mo - lag(mo) OVER (PARTITION BY account_id ORDER BY mo) = 1 THEN 0 ELSE 1 END AS st FROM m),
+    g AS (SELECT account_id, sum(st) OVER (PARTITION BY account_id ORDER BY mo) AS run FROM f),
+    c AS (SELECT account_id, run, count(*) AS n FROM g GROUP BY 1, 2)
+    SELECT account_id, max(n) AS longest_run_months FROM c GROUP BY 1 ORDER BY 2 DESC, 1

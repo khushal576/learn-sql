@@ -1,0 +1,28 @@
+id: pf-003
+title: Customer lookup by e-mail, any case
+topic: performance
+tags: [index, expression-index, lower, ilike]
+difficulty: easy
+dataset: perf
+prompt: |
+  Support agents paste an e-mail address in whatever case the customer typed it. The lookup `customers` (50 000 rows) is slow. The table has an index built for case-insensitive e-mail search.
+
+  A customer wrote from **`sofia.CHEN123@example.com`**. Return `id`, `email`, `country` of the matching customer (e-mails are unique ignoring case).
+  Check also looks at the query plan: the lookup must go through an index.
+solution_sql: |
+  SELECT id, email, country FROM customers WHERE lower(email) = lower('sofia.CHEN123@example.com')
+check:
+  type: plan
+  must_use: ["Index Scan|Index Only Scan|Bitmap Index Scan|Bitmap Heap Scan"]
+  must_not_use: ["Seq Scan on customers"]
+  note: "the lookup must be answered through an index on customers"
+compare: {order_matters: false}
+hints:
+  - "Look at how the index is defined: it does not index `email`, it indexes a *function* of it."
+  - "Your predicate must contain exactly that expression on the column side."
+trap: |
+  `WHERE email ILIKE 'sofia.CHEN123@example.com'` finds the customer, but ILIKE cannot use a btree index, nor the expression index, so all 50 000 rows are read. `email = '...'` is worse: it misses the customer entirely because the stored value is `Sofia.Chen123@Example.com`. Only `lower(email) = ...` matches the index `customers_lower_email_idx`.
+followup: |
+  "How would you make that lookup case-insensitive without any function in queries?" (Store the column as `citext`, or index and query `lower(email)` consistently; also add a UNIQUE index on `lower(email)`.)
+alternatives:
+  - "SELECT id, email, country FROM customers WHERE lower(email) = 'sofia.chen123@example.com'"

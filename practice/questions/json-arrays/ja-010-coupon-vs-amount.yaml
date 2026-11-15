@@ -1,0 +1,32 @@
+id: ja-010
+title: Do coupons lower the basket value?
+topic: json-arrays
+tags: [jsonb, join-on-composite, json-null]
+difficulty: hard
+dataset: events
+prompt: |
+  Finance suspects that coupons hurt revenue. The coupon of a purchase sits in the `purchase` event (`props ->> 'coupon'`, which is a text, a JSON `null` or missing), the money sits in `purchases.amount`. The two tables describe the same purchase when `user_id` **and** `ts` are equal.
+
+  Considering only purchases paid in **USD** (`purchases.currency`), return `coupon` (the code, or `none` when there is no coupon), `purchases` (how many) and `avg_amount` (average amount, rounded to 2 decimals), ordered by `coupon`.
+solution_sql: |
+  SELECT coalesce(e.props ->> 'coupon', 'none') AS coupon,
+         count(*) AS purchases,
+         round(avg(p.amount), 2) AS avg_amount
+  FROM events e
+  JOIN purchases p ON p.user_id = e.user_id AND p.ts = e.ts
+  WHERE e.name = 'purchase' AND p.currency = 'USD'
+  GROUP BY 1
+  ORDER BY 1
+compare: {order_matters: true, decimals: 2}
+hints:
+  - "There is no purchase id in the events table. What identifies the same purchase in both tables?"
+  - "`->>` turns both a JSON null and a missing key into SQL NULL: one label covers both."
+trap: |
+  Joining on `user_id` alone pairs every purchase event of a user with every purchase row of that user, multiplying the counts (a customer with 3 purchases counts 9 times) and mixing the amounts of different orders. The timestamp is the second half of the key.
+followup: |
+  "Why not average across currencies?" (Amounts in JPY and USD are not additive; convert with a rate table first or segment by currency, as here.)
+alternatives:
+  - |
+    SELECT coalesce(e.props ->> 'coupon', 'none') AS coupon, count(*) AS purchases, round(avg(p.amount), 2) AS avg_amount
+    FROM purchases p JOIN events e ON (e.user_id, e.ts) = (p.user_id, p.ts) AND e.name = 'purchase'
+    WHERE p.currency = 'USD' GROUP BY 1 ORDER BY 1

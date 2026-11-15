@@ -1,0 +1,31 @@
+id: mk-053
+title: "Gold guests: time between the first two stays"
+topic: mock-interviews
+tags: ["window", "row-number", "self-join"]
+difficulty: medium
+dataset: hotel
+prompt: |
+  Ravi: "Our 30 gold-tier guests are the backbone. How long do they stay away between their first and second stay?"
+  For every guest with `loyalty = 'gold'` who has at least two **confirmed** bookings, order their confirmed bookings by `check_in` (then `id`) and take the first and the second.
+  Return `guest_id`, `first_check_out` (check-out date of the first stay), `second_check_in` (check-in date of the second) and `days_between` (second check-in minus first check-out, in days). Order by `guest_id`.
+solution_sql: |
+  WITH s AS (
+    SELECT b.guest_id, b.check_in, b.check_out,
+           row_number() OVER (PARTITION BY b.guest_id ORDER BY b.check_in, b.id) AS rn
+    FROM bookings b
+    JOIN guests g ON g.id = b.guest_id
+    WHERE g.loyalty = 'gold' AND b.status = 'confirmed'
+  )
+  SELECT a.guest_id, a.check_out AS first_check_out, b.check_in AS second_check_in, b.check_in - a.check_out AS days_between
+  FROM s a
+  JOIN s b ON b.guest_id = a.guest_id AND a.rn = 1 AND b.rn = 2
+  ORDER BY a.guest_id
+compare: {order_matters: true}
+hints:
+  - "row_number() per guest, ordered by check_in with the id as tie-breaker, numbers the stays."
+  - "Join the numbered list to itself (rn 1 with rn 2), or use lead() inside the first-stay row."
+  - "Filter to confirmed bookings BEFORE numbering, otherwise a cancelled booking becomes 'the first stay'."
+trap: |
+  Numbering all bookings, cancelled and no-show included, makes a cancelled attempt the 'first stay': the wrong answer lists 30 gold guests (some with a different pair of dates) where the correct list has 28 guests with two real stays.
+followup: |
+  "Average that gap per tier." Same CTE without the gold filter, join guests, avg(days_between) group by loyalty.

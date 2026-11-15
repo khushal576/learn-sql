@@ -1,0 +1,29 @@
+id: mk-002
+title: Payment methods in H1 2024
+topic: mock-interviews
+tags: [join, aggregation, fan-out]
+difficulty: medium
+dataset: ecommerce
+prompt: |
+  The payments team asks about the first half of **2024** (orders with `order_date` from 2024-01-01 to 2024-06-30). For every payment `method`, return:
+
+  - `orders`: number of paid orders (an order has at most one payment)
+  - `units`: total quantity of items in those orders
+  - `paid_total`: the sum of `payments.amount`
+
+  Return `method`, `orders`, `units`, `paid_total`, ordered by `paid_total` descending, then `method`. (Rounded to 2 decimals when compared.)
+solution_sql: |
+  SELECT pay.method,
+         count(*) AS orders,
+         sum(it.units) AS units,
+         sum(pay.amount) AS paid_total
+  FROM payments pay
+  JOIN orders o ON o.id = pay.order_id
+  JOIN (SELECT order_id, sum(quantity) AS units FROM order_items GROUP BY order_id) it ON it.order_id = o.id
+  WHERE o.order_date >= '2024-01-01' AND o.order_date < '2024-07-01'
+  GROUP BY pay.method
+  ORDER BY paid_total DESC, pay.method
+compare: {order_matters: true}
+hints: ['`units` needs `order_items`, `paid_total` needs `payments`. What happens to a payment amount when its order is joined to 5 item rows?', 'Aggregate the many-side to one row per order before joining, or use a subquery.']
+trap: Joining `payments` and `order_items` directly repeats every payment once per order line, so `sum(amount)` is multiplied (bank_transfer shows 3,225,699.20 instead of 806,424.80) and `count(*)` counts lines, not orders. Collapse `order_items` to one row per order first (a **fan-out** trap).
+followup: '"How would you spot a fan-out trap without knowing the data?" (Compare `count(*)` before and after each join, or check that totals exceed a known control total such as `sum(amount)` straight from `payments`.)'

@@ -1,0 +1,36 @@
+id: mk-072
+title: "Longest daily streak in local time (Auckland users)"
+topic: mock-interviews
+tags: ["gaps-and-islands", "time-zone", "dates"]
+difficulty: hard
+dataset: events
+prompt: |
+  Kofi: "Habit formation: who is active day after day?" Take only users whose `tz` is `Pacific/Auckland`. A user is *active* on a day if they have at least one event that day, where the day is the **local calendar day in the user's own time zone** (convert `ts` with `AT TIME ZONE users.tz`).
+  A streak is a maximal run of consecutive local days with activity. Return the users whose **longest streak is at least 6 days**: `user_id` and `longest_streak` (days). Order by `longest_streak` descending, then `user_id`.
+solution_sql: |
+  WITH d AS (
+    SELECT DISTINCT e.user_id, (e.ts AT TIME ZONE u.tz)::date AS day
+    FROM events e
+    JOIN users u ON u.id = e.user_id
+    WHERE u.tz = 'Pacific/Auckland'
+  ), g AS (
+    SELECT user_id, day,
+           day - (row_number() OVER (PARTITION BY user_id ORDER BY day))::int AS grp
+    FROM d
+  ), s AS (
+    SELECT user_id, count(*) AS streak FROM g GROUP BY user_id, grp
+  )
+  SELECT user_id, max(streak) AS longest_streak
+  FROM s
+  GROUP BY user_id
+  HAVING max(streak) >= 6
+  ORDER BY longest_streak DESC, user_id
+compare: {order_matters: true}
+hints:
+  - "First reduce the events to distinct (user, local day) pairs: (ts AT TIME ZONE tz)::date."
+  - "Classic islands: day minus row_number is constant inside a run of consecutive days."
+  - "Auckland is 12-13 hours ahead of UTC, so an evening session in UTC lands on a different local day."
+trap: |
+  Using UTC days (`ts AT TIME ZONE 'UTC'`) splits and glues activity differently from the user's real calendar: 22 users reach a 6-day streak in UTC but only 8 do in their own local time, so the wrong query lists 14 users that do not belong in the answer.
+followup: |
+  "What changes on the day Auckland switches to daylight saving?" The local day is then 23 or 25 hours long, which is exactly why you convert each timestamp with the zone instead of adding a fixed offset.

@@ -1,0 +1,34 @@
+id: ja-004
+title: What do the props columns really contain?
+topic: json-arrays
+tags: [jsonb, json-null, "null", jsonb_typeof]
+difficulty: medium
+dataset: events
+prompt: |
+  Before writing any parser, the data team wants to know how `events.props` is populated. Classify every event into **exactly one** state:
+
+  - `sql_null` - the column is NULL
+  - `json_null` - the column holds the JSON value `null`
+  - `empty_object` - the column holds `{}`
+  - `has_data` - anything else
+
+  Return `state` and `events` (how many), ordered by `state`.
+solution_sql: |
+  SELECT CASE WHEN props IS NULL THEN 'sql_null'
+              WHEN jsonb_typeof(props) = 'null' THEN 'json_null'
+              WHEN props = '{}'::jsonb THEN 'empty_object'
+              ELSE 'has_data' END AS state,
+         count(*) AS events
+  FROM events
+  GROUP BY 1
+  ORDER BY 1
+compare: {order_matters: true}
+hints:
+  - "A jsonb column can hold the JSON null as a value. Is that the same as SQL NULL? Which function tells you the kind of a jsonb value?"
+trap: |
+  `props IS NULL` only catches SQL NULL (750 rows). The 779 rows holding the JSON value `null` are not SQL NULL, so a CASE that stops at `IS NULL` / `= '{}'` throws them into `has_data` and the "data" bucket is inflated by events that have nothing in them. `jsonb_typeof(props) = 'null'` sees them (and returns SQL NULL for a SQL NULL input, so test `IS NULL` first).
+followup: |
+  "How do you turn the JSON null into a SQL NULL in one expression?" (`nullif(props, 'null'::jsonb)`; for a key's value, `props ->> 'k'` already returns SQL NULL for a JSON null.)
+alternatives:
+  - |
+    SELECT state, count(*) AS events FROM (SELECT CASE WHEN props IS NULL THEN 'sql_null' WHEN props = 'null'::jsonb THEN 'json_null' WHEN props = '{}'::jsonb THEN 'empty_object' ELSE 'has_data' END AS state FROM events) s GROUP BY state ORDER BY state

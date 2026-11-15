@@ -1,0 +1,37 @@
+id: ip-021
+title: Bought first, activated later
+topic: interview-patterns
+tags: [funnel, order-aware, filter]
+difficulty: medium
+dataset: events
+prompt: |
+  Product suspects an onboarding bug: some users completed a purchase **before** their first `activated` event (the activation was recorded days later).
+  Find users who have **both** events and whose **first** purchase happened before their **first** activation. Users who never activated are not part of this list.
+  Return `user_id`, `first_purchase_day`, `first_activated_day` (both as dates in UTC) and `days_late` (`first_activated_day` minus `first_purchase_day`, in whole days),
+  ordered by `user_id`.
+solution_sql: |
+  SELECT user_id,
+         (min(ts) FILTER (WHERE name = 'purchase')  AT TIME ZONE 'UTC')::date AS first_purchase_day,
+         (min(ts) FILTER (WHERE name = 'activated') AT TIME ZONE 'UTC')::date AS first_activated_day,
+         (min(ts) FILTER (WHERE name = 'activated') AT TIME ZONE 'UTC')::date
+           - (min(ts) FILTER (WHERE name = 'purchase') AT TIME ZONE 'UTC')::date AS days_late
+  FROM events
+  WHERE name IN ('purchase', 'activated')
+  GROUP BY user_id
+  HAVING min(ts) FILTER (WHERE name = 'activated') > min(ts) FILTER (WHERE name = 'purchase')
+  ORDER BY user_id
+compare: {order_matters: true}
+hints:
+  - "One row per user: aggregate the two event types side by side (FILTER or conditional MIN)."
+  - "A user who never activated has NULL for the activation time - what should the comparison do with them?"
+trap: |
+  Phrasing it as "a purchase exists with no earlier activation" (`NOT EXISTS (activated before this purchase)`) also catches the 8 users who bought and never activated:
+  18 users instead of the 10 who really activated late.
+followup: |
+  "And users with several activations?" Compare with the FIRST activation (min), as here; using max(ts) would flag users who merely re-activated later.
+alternatives:
+  - |
+    SELECT p.user_id, p.d AS first_purchase_day, a.d AS first_activated_day, a.d - p.d AS days_late
+    FROM (SELECT user_id, (min(ts) AT TIME ZONE 'UTC')::date AS d, min(ts) AS t FROM events WHERE name = 'purchase' GROUP BY user_id) p
+    JOIN (SELECT user_id, (min(ts) AT TIME ZONE 'UTC')::date AS d, min(ts) AS t FROM events WHERE name = 'activated' GROUP BY user_id) a USING (user_id)
+    WHERE a.t > p.t ORDER BY p.user_id

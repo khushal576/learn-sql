@@ -1,0 +1,26 @@
+id: mk-073
+title: "Average total pay per department"
+topic: mock-interviews
+tags: ["left-join", "null", "coalesce"]
+difficulty: easy
+dataset: hr
+prompt: |
+  Claire: "What does a department really pay its people?" Total compensation of an employee is `salary` plus `commission`, where a missing commission (NULL) means 0.
+  Return **every department** (also the empty one) with `dept_id`, `department` (the department name), `headcount` (number of employees) and `avg_total_comp` (average total compensation, rounded to 2 decimals; NULL for a department without employees). Order by `dept_id`.
+solution_sql: |
+  SELECT d.id AS dept_id, d.name AS department,
+         count(e.id) AS headcount,
+         round(avg(e.salary + coalesce(e.commission, 0)), 2) AS avg_total_comp
+  FROM departments d
+  LEFT JOIN employees e ON e.dept_id = d.id
+  GROUP BY d.id, d.name
+  ORDER BY d.id
+compare: {order_matters: true}
+hints:
+  - "Which table must keep all its rows - departments or employees?"
+  - "salary + NULL is NULL. What do you want a missing commission to mean?"
+  - "count(e.id) gives 0 for the empty department, count(*) would give 1."
+trap: |
+  `salary + commission` is NULL whenever the commission is missing, and avg() skips NULL rows: only the 24 commissioned employees are averaged, so Engineering shows 53,920.00 instead of 75,902.71. Without coalesce(commission, 0) the 'average pay' is the average of a handful of people.
+followup: |
+  "Show also the median instead of the average." percentile_cont(0.5) WITHIN GROUP (ORDER BY salary + coalesce(commission, 0)) - skewed pay is exactly why the median matters.

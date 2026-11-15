@@ -1,0 +1,26 @@
+id: ja-001
+title: Page views per page
+topic: json-arrays
+tags: [jsonb, operators, text-extraction]
+difficulty: easy
+dataset: events
+prompt: |
+  The web team wants to know which pages of the product are visited most. Every `page_view` event keeps the visited page in its `props` JSON (key `page`).
+
+  Return `page` (as plain text, e.g. `/home`, no quotation marks) and `views` (number of page views), ordered by `views` descending, then `page`.
+solution_sql: |
+  SELECT props ->> 'page' AS page, count(*) AS views
+  FROM events
+  WHERE name = 'page_view'
+  GROUP BY 1
+  ORDER BY views DESC, page
+compare: {order_matters: true}
+hints:
+  - "jsonb has two ways to pull a key out. One of them returns jsonb, the other returns text."
+trap: |
+  `props -> 'page'` returns a **jsonb** value: the result looks like `"/home"` with the quotation marks as part of the value, so the output no longer equals the plain text the dashboard needs (and comparing it with a text literal needs a cast or fails). Use `->>` (or `#>>`) when you want text.
+followup: |
+  "Which operator would you use on a key nested two levels deep?" (`#>>` with a path array: `props #>> '{utm,source}'` - text out; `#>` keeps jsonb.)
+alternatives:
+  - |
+    SELECT props #>> '{page}' AS page, count(*) AS views FROM events WHERE name = 'page_view' GROUP BY 1 ORDER BY 2 DESC, 1

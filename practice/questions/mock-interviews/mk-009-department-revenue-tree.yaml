@@ -1,0 +1,37 @@
+id: mk-009
+title: Department revenue with sub-categories
+topic: mock-interviews
+tags: [recursive-cte, window, tree, rollup]
+difficulty: hard
+dataset: ecommerce
+prompt: |
+  The board wants revenue by **department**, i.e. by top-level category (`parent_id IS NULL`). Products sit in categories at any depth of the tree below a department (Laptops sit under Computers under Electronics), so each product belongs to the department at the root of its branch.
+
+  Use delivered orders placed in calendar year **2023** and `quantity * unit_price` as revenue. Return one row per department with sales: `department` (name), `revenue`, `share_pct` (its share of the total revenue of all departments, 0-100, rounded to 2 decimals), `best_product` (the name of the product with the highest revenue inside that department; ties by lowest product id). Order by `revenue` descending.
+solution_sql: |
+  WITH RECURSIVE tree AS (
+    SELECT id, id AS root_id FROM categories WHERE parent_id IS NULL
+    UNION ALL
+    SELECT c.id, t.root_id FROM categories c JOIN tree t ON c.parent_id = t.id),
+  sales AS (
+    SELECT t.root_id, p.id AS product_id, p.name AS product_name, sum(i.quantity * i.unit_price) AS revenue
+    FROM orders o
+    JOIN order_items i ON i.order_id = o.id
+    JOIN products p ON p.id = i.product_id
+    JOIN tree t ON t.id = p.category_id
+    WHERE o.status = 'delivered' AND o.order_date >= '2023-01-01' AND o.order_date < '2024-01-01'
+    GROUP BY t.root_id, p.id, p.name),
+  agg AS (
+    SELECT *, sum(revenue) OVER (PARTITION BY root_id) AS root_revenue,
+           row_number() OVER (PARTITION BY root_id ORDER BY revenue DESC, product_id) AS rn
+    FROM sales)
+  SELECT c.name AS department, a.root_revenue AS revenue,
+         round(100.0 * a.root_revenue / sum(a.root_revenue) OVER (), 2) AS share_pct,
+         a.product_name AS best_product
+  FROM agg a JOIN categories c ON c.id = a.root_id
+  WHERE a.rn = 1
+  ORDER BY revenue DESC
+compare: {order_matters: true}
+hints: [Walk the category tree with a recursive CTE that carries the root id down to every descendant., Rank products within a department with a window function; the department revenue can be a window sum over the same grouping.]
+trap: 'Joining products to their *direct* category and keeping only top-level categories finds only Books (the single department whose products sit directly on the root): the result has 1 row with a 100% share instead of 4 departments (Electronics 43.91%, Home 27.61%, Clothing 21.83%, Books 6.64%). The hierarchy has to be resolved with a recursive CTE (or a fixed number of self joins, which breaks when the tree gets deeper).'
+followup: '"How would you make this cheap to run daily?" (Materialise the product-to-root mapping, or store a path/closure table; a recursive CTE over 14 categories is trivial but over a million-node tree is not.)'

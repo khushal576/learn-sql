@@ -1,0 +1,22 @@
+id: mk-031
+title: Event mix by device
+topic: mock-interviews
+tags: [group-by, 'null', coalesce, window-share]
+difficulty: easy
+dataset: events
+prompt: |
+  The mobile team wants the traffic split by device. For every `device` value return `device`, `events` (number of events), `users` (distinct users) and `events_pct` (share of all events, 0-100, rounded to 2 decimals). Events whose device is unknown (NULL) must be reported as a group called `unknown`.
+
+  Order by `events` descending, then `device`.
+solution_sql: |
+  SELECT coalesce(device, 'unknown') AS device,
+         count(*) AS events,
+         count(DISTINCT user_id) AS users,
+         round(100.0 * count(*) / sum(count(*)) OVER (), 2) AS events_pct
+  FROM events
+  GROUP BY coalesce(device, 'unknown')
+  ORDER BY events DESC, device
+compare: {order_matters: true}
+hints: ['NULL is not a value you can group on by name, but `GROUP BY` does put NULLs in one group.', '`coalesce(device, ''unknown'')` names the group; remember that the percentage must be relative to ALL events.']
+trap: 'Filtering `WHERE device IS NOT NULL` (or `count(device)`) throws away 688 events and silently changes the denominator: android shows 29.72% instead of 28.89% and the `unknown` row, which is 2.82% of the traffic and reaches 311 users, vanishes.'
+followup: '"Which share of users used more than one device?" (Group events by user, `count(DISTINCT device)` per user, then count the users with more than one: mind the NULLs again.)'

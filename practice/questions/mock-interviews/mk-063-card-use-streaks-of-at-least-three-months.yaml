@@ -1,0 +1,34 @@
+id: mk-063
+title: "Card-use streaks of at least three months"
+topic: mock-interviews
+tags: ["gaps-and-islands", "months", "distinct"]
+difficulty: hard
+dataset: bank
+prompt: |
+  Hannah: "Customers who use their card every month are our loyal ones. Find the **streaks**."
+  For each account, a *streak* is a maximal run of consecutive calendar months in 2024 in which the account had at least one `purchase` transaction. Return every streak of **at least 3 months**:
+  `account_id`, `run_start` (first month of the run, as the first day of that month), `run_end` (last month of the run, also a first-of-month date) and `months` (the length of the run). Order by `account_id`, `run_start`.
+solution_sql: |
+  WITH m AS (
+    SELECT DISTINCT account_id, date_trunc('month', tx_date)::date AS mon
+    FROM transactions
+    WHERE kind = 'purchase'
+  ), g AS (
+    SELECT account_id, mon,
+           mon - (INTERVAL '1 month' * row_number() OVER (PARTITION BY account_id ORDER BY mon)) AS grp
+    FROM m
+  )
+  SELECT account_id, min(mon) AS run_start, max(mon) AS run_end, count(*) AS months
+  FROM g
+  GROUP BY account_id, grp
+  HAVING count(*) >= 3
+  ORDER BY account_id, run_start
+compare: {order_matters: true}
+hints:
+  - "Reduce the data to one row per account and month FIRST - several purchases in a month are one 'active month'."
+  - "Gaps and islands: number the active months per account; (month - row_number months) is constant inside a run of consecutive months."
+  - "Group by account and that constant, keep the groups with at least 3 months."
+trap: |
+  If the purchases are not collapsed to distinct months before numbering, two purchases in the same month take two row numbers, the constant stops being constant and the runs are cut into pieces or glued wrongly: the wrong query returns 520 pieces instead of the 113 real streaks.
+followup: |
+  "The longest streak per account only." Wrap the grouped result and rank by months desc (row_number or max()) - and say what you want when two streaks tie.

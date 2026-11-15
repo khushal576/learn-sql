@@ -1,0 +1,34 @@
+id: ds-016
+title: First action on a later local day
+topic: dates-strings
+tags: [at-time-zone, per-row-zone, timestamptz, first-event]
+difficulty: hard
+dataset: events
+prompt: |
+  Onboarding wants to know how many new users do their **first action after signing up on a different local calendar day** than the day they signed up (the "I'll try it tomorrow" effect), per time zone. The **first action** is the earliest event of the user that is **not** the `'signup'` event itself. Dates are the **local** dates in the user's own `tz`. Users who never did anything after signing up are ignored.
+
+  Return `tz`, `users_with_activity` (users that have a first action) and `crossed_midnight` (those whose first action is on a different local date than their signup), ordered by `tz`.
+solution_sql: |
+  WITH f AS (
+    SELECT u.id, u.tz, u.signup_at, min(e.ts) AS first_ts
+    FROM users u
+    JOIN events e ON e.user_id = u.id AND e.name <> 'signup'
+    GROUP BY u.id, u.tz, u.signup_at
+  )
+  SELECT tz,
+         count(*) AS users_with_activity,
+         count(*) FILTER (WHERE (first_ts AT TIME ZONE tz)::date <> (signup_at AT TIME ZONE tz)::date) AS crossed_midnight
+  FROM f
+  GROUP BY tz
+  ORDER BY tz
+compare: {order_matters: true}
+hints:
+  - "The `signup` event shares the user's signup time: it must not count as the first action."
+  - "A time zone can be a column: `ts AT TIME ZONE u.tz`. Compare local dates, not UTC dates."
+trap: |
+  Comparing the **UTC** dates answers a different question: it says 11 Auckland users crossed midnight (the zone is 12-13 hours ahead of UTC, so UTC-date changes happen at the wrong moment) instead of the real 1, and 8 for Tokyo instead of 2, while it undercounts Kolkata (6 instead of 7). The local calendar must be applied to **both** timestamps, with the user's own zone.
+followup: |
+  "What if someone's first action is exactly at 00:00:00 local?" (Their local date is already the next day, so they count as crossed; half-open day boundaries are the rule: `[00:00, 24:00)`.)
+alternatives:
+  - |
+    SELECT u.tz, count(*) AS users_with_activity, sum((date_trunc('day', f.ft AT TIME ZONE u.tz) <> date_trunc('day', u.signup_at AT TIME ZONE u.tz))::int) AS crossed_midnight FROM users u JOIN LATERAL (SELECT min(ts) AS ft FROM events e WHERE e.user_id = u.id AND e.name <> 'signup') f ON f.ft IS NOT NULL GROUP BY u.tz ORDER BY u.tz

@@ -1,0 +1,33 @@
+id: mk-051
+title: "Same-day turnovers per month"
+topic: mock-interviews
+tags: ["self-join", "exists", "conditional-aggregation", "percentage"]
+difficulty: hard
+dataset: hotel
+prompt: |
+  Tomas: "Housekeeping has the toughest days when a guest leaves in the morning and the next one arrives the same day. How often does that happen?"
+  Using **confirmed** bookings only, call a booking a *handover* when another confirmed booking of the **same room** has `check_out` equal to this booking's `check_in`.
+  For each month of 2024 (by the booking's `check_in`) return `month` (first day of the month, a date), `check_ins` (confirmed bookings checking in that month), `handovers` (how many of those are handovers - a booking counts once even if several earlier stays end on its check-in date)
+  and `handover_pct` = handovers as a percentage (0-100) of check_ins, rounded to 2 decimals. Order by `month`.
+solution_sql: |
+  SELECT date_trunc('month', b.check_in)::date AS month,
+         count(*) AS check_ins,
+         count(*) FILTER (WHERE EXISTS (
+           SELECT 1 FROM bookings a
+           WHERE a.room_id = b.room_id AND a.status = 'confirmed' AND a.check_out = b.check_in)) AS handovers,
+         round(100.0 * count(*) FILTER (WHERE EXISTS (
+           SELECT 1 FROM bookings a
+           WHERE a.room_id = b.room_id AND a.status = 'confirmed' AND a.check_out = b.check_in)) / count(*), 2) AS handover_pct
+  FROM bookings b
+  WHERE b.status = 'confirmed' AND b.check_in >= '2024-01-01' AND b.check_in < '2025-01-01'
+  GROUP BY 1
+  ORDER BY 1
+compare: {order_matters: true}
+hints:
+  - "A handover is a booking for which EXISTS another confirmed booking in the same room ending exactly on its check_in."
+  - "Both the booking and its predecessor must be confirmed - cancelled twins share dates with real stays."
+  - "If you join instead of EXISTS, a booking with two matching predecessors would be counted twice."
+trap: |
+  Forgetting the status filter on the predecessor (or on the check-ins) lets cancelled and no-show bookings create or hide handovers: for example January shows 58 handovers instead of 57, February 74 instead of 57 (and the denominators are inflated too).
+followup: |
+  "Could you do it with lag() instead?" Yes, lag(check_out) over (partition by room_id order by check_in), but a real double-booking puts a different stay in the 'previous' slot - February and March come out one too low - so EXISTS is the safer definition.

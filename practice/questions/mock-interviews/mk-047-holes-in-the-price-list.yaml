@@ -1,0 +1,29 @@
+id: mk-047
+title: "Holes in the price list"
+topic: mock-interviews
+tags: ["lag-lead", "gaps", "date-ranges"]
+difficulty: medium
+dataset: hotel
+prompt: |
+  Elena: "Each room type has a sequence of rate cards. Each card is valid from `valid_from` to `valid_to`, **both days inclusive**, and the next card should start the day after the previous one ends. Is there a day without a price?"
+  Find every gap: for each room type and each pair of consecutive cards (by `valid_from`) where at least one whole day is not covered between them, return `room_type`, `gap_from` (first uncovered day) and `gap_to` (last uncovered day).
+  Order by `room_type`, `gap_from`.
+solution_sql: |
+  SELECT room_type, valid_to + 1 AS gap_from, next_from - 1 AS gap_to
+  FROM (
+    SELECT room_type, valid_to,
+           lead(valid_from) OVER (PARTITION BY room_type ORDER BY valid_from) AS next_from
+    FROM rate_cards
+  ) c
+  WHERE next_from > valid_to + 1
+  ORDER BY room_type, gap_from
+compare: {order_matters: true}
+hints:
+  - "lead() (or lag()) brings the next card's start onto the current card's row, per room type."
+  - "Because valid_to is inclusive, a card ending on the 31st followed by one starting on the 1st has NO gap."
+  - "The first uncovered day is valid_to + 1, the last one is next_from - 1."
+trap: |
+  Comparing `next_from > valid_to` (as if valid_to were exclusive) flags every pair of perfectly adjacent cards as a gap: 12 bogus rows instead of the single real gap (suite, 2024-09-01 to 2024-09-14).
+  It is the mirror image of the bookings table where check_out IS exclusive - always check which end is inclusive.
+followup: |
+  "The same question for bookings in a room: when is the room idle?" The same lead() pattern with check_out (exclusive) versus the next check_in - there adjacent means equal, not +1.

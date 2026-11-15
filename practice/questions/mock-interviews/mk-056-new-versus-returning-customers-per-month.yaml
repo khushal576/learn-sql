@@ -1,0 +1,36 @@
+id: mk-056
+title: "New versus returning customers per month"
+topic: mock-interviews
+tags: ["cte", "distinct", "first-order", "cohort"]
+difficulty: medium
+dataset: ecommerce
+prompt: |
+  Shreya: "For the first half of 2023, how many of the customers who ordered each month were new and how many were returning?"
+  Ignore cancelled orders throughout. A customer is **new** in the month of their very first non-cancelled order (ever) and **returning** in any later month in which they order again.
+  Return one row per month from January to June 2023: `month` (first day of the month, a date), `new_customers` and `returning_customers` - each counted as **distinct customers** who ordered in that month. Order by `month`.
+solution_sql: |
+  WITH o AS (
+    SELECT customer_id, date_trunc('month', order_date)::date AS m
+    FROM orders
+    WHERE status <> 'cancelled' AND order_date >= '2023-01-01' AND order_date < '2023-07-01'
+  ), f AS (
+    SELECT customer_id, date_trunc('month', min(order_date))::date AS first_m
+    FROM orders
+    WHERE status <> 'cancelled'
+    GROUP BY customer_id
+  )
+  SELECT o.m AS month,
+         count(DISTINCT o.customer_id) FILTER (WHERE f.first_m = o.m) AS new_customers,
+         count(DISTINCT o.customer_id) FILTER (WHERE f.first_m < o.m) AS returning_customers
+  FROM o JOIN f USING (customer_id)
+  GROUP BY o.m
+  ORDER BY o.m
+compare: {order_matters: true}
+hints:
+  - "First find each customer's first non-cancelled order month over ALL orders (not only the half-year)."
+  - "Compare that first month with the month of each order: equal = new, earlier = returning."
+  - "A customer with three orders in March is one customer: count distinct."
+trap: |
+  Defining 'new' by `customers.signup_date` instead of the first order tells a completely different story: January 2023 would show 8 new customers, but 198 customers placed their first order that month (signing up and ordering are different events).
+followup: |
+  "What is the share of returning customers in June?" returning / (new + returning), but beware integer division - multiply by 100.0 first.

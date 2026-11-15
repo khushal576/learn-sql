@@ -1,0 +1,38 @@
+id: mk-012
+title: Size of every manager's organisation
+topic: mock-interviews
+tags: [recursive-cte, tree, aggregation]
+difficulty: hard
+dataset: hr
+prompt: |
+  The reorganisation committee needs the size of each leader's whole organisation, not only the direct reports. For every employee who has at least one report (directly or indirectly), return:
+
+  - `manager_id`, `manager` (name), `job_title`
+  - `org_size`: number of people below them at any depth (not counting the manager)
+  - `org_payroll`: the sum of those people's `salary` (not counting the manager)
+  - `levels`: how many management levels lie below (1 = only direct reports)
+
+  Return the 10 largest organisations ordered by `org_size` descending, then `manager_id`.
+solution_sql: |
+  WITH RECURSIVE org AS (
+    SELECT m.id AS boss_id, m.id AS member_id, 0 AS depth
+    FROM employees m
+    UNION ALL
+    SELECT o.boss_id, e.id, o.depth + 1
+    FROM org o
+    JOIN employees e ON e.manager_id = o.member_id)
+  SELECT b.id AS manager_id, b.name AS manager, b.job_title,
+         count(*) - 1 AS org_size,
+         sum(e.salary) - b.salary AS org_payroll,
+         max(o.depth) AS levels
+  FROM org o
+  JOIN employees b ON b.id = o.boss_id
+  JOIN employees e ON e.id = o.member_id
+  GROUP BY b.id, b.name, b.job_title, b.salary
+  HAVING count(*) > 1
+  ORDER BY org_size DESC, b.id
+  LIMIT 10
+compare: {order_matters: true}
+hints: ['Start the recursion from every employee as his own ''boss'', then follow `manager_id` links downwards.', Remember to remove the starting row (the boss himself) from the count and the payroll.]
+trap: 'Counting only rows where `manager_id = boss.id` gives direct reports only: the CEO shows 5 instead of 249 and VP Liam Rossi 5 instead of 51, so the top 10 is filled with directors (9-10 staff each) and no VP or CEO appears at all. The tree has three levels (CEO > VP > director > staff), so a recursive CTE (or three self-joins that stop working on a deeper tree) is required.'
+followup: '"What happens if someone is accidentally their own manager''s manager?" (A cycle makes the recursion infinite: use `UNION` instead of `UNION ALL`, a depth guard, or a visited-path array with a cycle check.)'

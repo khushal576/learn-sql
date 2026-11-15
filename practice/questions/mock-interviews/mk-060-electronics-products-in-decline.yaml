@@ -1,0 +1,42 @@
+id: mk-060
+title: "Electronics products in decline"
+topic: mock-interviews
+tags: ["recursive", "conditional-aggregation", "year-over-year"]
+difficulty: hard
+dataset: ecommerce
+prompt: |
+  Jonas: "Which of our Electronics products earn clearly less in 2024 than in 2023?"
+  Electronics is the category with `id = 1` **and all its sub-categories at any depth**. For every product in that subtree compute revenue per calendar year of `order_date` (2023 and 2024) over the orders that are **not** `cancelled` and **not** `returned`; revenue of a line is `quantity * unit_price`.
+  Return the products whose 2024 revenue is **more than 8 % lower** than their 2023 revenue (2024 revenue < 0.92 x 2023 revenue; ignore products without 2023 revenue):
+  `product_id`, `name`, `rev_2023`, `rev_2024`, `change_pct` (= 100 * (rev_2024 - rev_2023) / rev_2023, rounded to 2 decimals, negative for a decline). Order by `change_pct` ascending, then `product_id`.
+solution_sql: |
+  WITH RECURSIVE cat AS (
+    SELECT id FROM categories WHERE id = 1
+    UNION ALL
+    SELECT c.id FROM categories c JOIN cat ON c.parent_id = cat.id
+  ), rev AS (
+    SELECT i.product_id,
+           sum(i.quantity * i.unit_price) FILTER (WHERE o.order_date < '2024-01-01') AS rev_2023,
+           sum(i.quantity * i.unit_price) FILTER (WHERE o.order_date >= '2024-01-01') AS rev_2024
+    FROM order_items i JOIN orders o ON o.id = i.order_id
+    WHERE o.status NOT IN ('cancelled', 'returned')
+    GROUP BY i.product_id
+  )
+  SELECT p.id AS product_id, p.name,
+         r.rev_2023, coalesce(r.rev_2024, 0) AS rev_2024,
+         round(100.0 * (coalesce(r.rev_2024, 0) - r.rev_2023) / r.rev_2023, 2) AS change_pct
+  FROM products p
+  JOIN cat ON cat.id = p.category_id
+  JOIN rev r ON r.product_id = p.id
+  WHERE r.rev_2023 > 0 AND coalesce(r.rev_2024, 0) < 0.92 * r.rev_2023
+  ORDER BY change_pct, p.id
+compare: {order_matters: true}
+hints:
+  - "Two recursive/aggregate steps: the subtree of category 1, and revenue per year per product with FILTER (or CASE) on the order year."
+  - "Decide which order statuses earn revenue BEFORE aggregating: it changes the numbers of both years."
+  - "Compare with a multiplication (rev_2024 < 0.92 * rev_2023) so you never divide by a missing year."
+trap: |
+  Excluding only `cancelled` orders lets returned orders count as revenue: the figures of many products differ (for example product 63: 24,909.26 -> 21,878.35, i.e. -12.17 %, becomes 39,062.84 -> 35,020.96, -10.35 %), so the output no longer matches the real revenue.
+  Taking only `category_id = 1` instead of the whole subtree finds nothing at all - no product sits directly in the top category.
+followup: |
+  "Show only products where the drop is in the second half of 2024." Add a half-year bucket to the FILTERs - and say what you compare it with (H2 2023, not H1 2024).

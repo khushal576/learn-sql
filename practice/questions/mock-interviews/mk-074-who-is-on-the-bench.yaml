@@ -1,0 +1,32 @@
+id: mk-074
+title: "Who is on the bench?"
+topic: mock-interviews
+tags: ["exists", "fan-out", "percentage"]
+difficulty: medium
+dataset: hr
+prompt: |
+  Claire: "How many people in each department are not staffed on any project?" An employee is **staffed** if they have at least one row in `project_assignments` (any project, any role). Some employees are on several projects.
+  For every department that has employees return `dept_id`, `department`, `headcount`, `staffed` (employees with at least one assignment), and `bench_pct` (percentage 0-100 of the department's employees that are NOT staffed, rounded to 2 decimals). Order by `dept_id`. The empty department is not listed.
+solution_sql: |
+  WITH e AS (
+    SELECT dept_id,
+           EXISTS (SELECT 1 FROM project_assignments a WHERE a.emp_id = employees.id) AS is_staffed
+    FROM employees
+  )
+  SELECT d.id AS dept_id, d.name AS department,
+         count(*) AS headcount,
+         count(*) FILTER (WHERE e.is_staffed) AS staffed,
+         round(100.0 * count(*) FILTER (WHERE NOT e.is_staffed) / count(*), 2) AS bench_pct
+  FROM e
+  JOIN departments d ON d.id = e.dept_id
+  GROUP BY d.id, d.name
+  ORDER BY d.id
+compare: {order_matters: true}
+hints:
+  - "Decide per EMPLOYEE whether they are staffed (EXISTS) before you aggregate per department."
+  - "If you join employees to assignments, an employee with three assignments becomes three rows."
+  - "bench_pct = employees without any assignment / headcount."
+trap: |
+  Joining employees to project_assignments and counting rows multiplies the people with several assignments: Engineering shows a headcount of 33 instead of its real 31 (and the shares are wrong as well). The unit of counting must stay 'one row per employee'.
+followup: |
+  "Who exactly is on the bench in Engineering?" The same EXISTS flipped to NOT EXISTS, or a LEFT JOIN ... WHERE a.emp_id IS NULL.

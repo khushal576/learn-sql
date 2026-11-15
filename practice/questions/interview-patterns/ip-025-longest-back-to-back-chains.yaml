@@ -1,0 +1,45 @@
+id: ip-025
+title: Back-to-back booking chains
+topic: interview-patterns
+tags: [islands, gaps-and-islands, window]
+difficulty: hard
+dataset: hotel
+prompt: |
+  Housekeeping wants to find rooms that were **never empty for a night** for a long stretch. A *chain* is a run of **confirmed** bookings of one room where each booking
+  starts the very day the previous one ends (`check_in` = the previous `check_out`); any gap of at least one night, or a booking that is not confirmed, breaks the chain
+  (order the room's bookings by `check_in`).
+  Return one row per room that has a chain of **8 or more** bookings: `room_id`, `bookings_in_chain`, `chain_start` (the first `check_in`) and `chain_end` (the last `check_out`);
+  if a room has two such chains, return both. Order by `room_id`, `chain_start`.
+solution_sql: |
+  WITH b AS (
+    SELECT *, CASE WHEN check_in = lag(check_out) OVER (PARTITION BY room_id ORDER BY check_in, id) THEN 0 ELSE 1 END AS new_chain
+    FROM bookings
+    WHERE status = 'confirmed'
+  ), g AS (
+    SELECT *, sum(new_chain) OVER (PARTITION BY room_id ORDER BY check_in, id) AS chain_no FROM b
+  )
+  SELECT room_id, count(*) AS bookings_in_chain, min(check_in) AS chain_start, max(check_out) AS chain_end
+  FROM g
+  GROUP BY room_id, chain_no
+  HAVING count(*) >= 8
+  ORDER BY room_id, chain_start
+compare: {order_matters: true}
+hints:
+  - "Flag each row that does NOT continue the previous one (LAG of check_out), then a running SUM of the flags numbers the chains."
+  - "Filter to confirmed rows BEFORE looking at the previous booking - a cancelled row must not bridge or extend a chain."
+trap: |
+  Forgetting the status filter lets cancelled and no-show rows bridge the chains: 33 chains in 8 rooms reach 8 (some even 10 bookings in a row, e.g. rooms 5, 10 and 15) although nobody slept there.
+  The right answer is four chains in four rooms (5, 15, 25, 35), 8 bookings each.
+followup: |
+  "Same question for the longest idle stretch?" Same pattern - number the groups where the gap is >= 1 night, or use LEAD to measure each gap directly (next question types in this set).
+alternatives:
+  - |
+    WITH r AS (
+      SELECT room_id, id, check_in, check_out,
+             check_in - lag(check_out) OVER (PARTITION BY room_id ORDER BY check_in, id) AS gap
+      FROM bookings WHERE status = 'confirmed'
+    ), s AS (
+      SELECT *, count(*) FILTER (WHERE gap IS DISTINCT FROM 0) OVER (PARTITION BY room_id ORDER BY check_in, id) AS grp FROM r
+    )
+    SELECT room_id, count(*) AS bookings_in_chain, min(check_in) AS chain_start, max(check_out) AS chain_end
+    FROM s GROUP BY room_id, grp HAVING count(*) >= 8 ORDER BY 1, 3

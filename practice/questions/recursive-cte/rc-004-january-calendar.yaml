@@ -1,0 +1,33 @@
+id: rc-004
+title: Cancelled trips per day in January
+topic: recursive-cte
+tags:
+- recursive
+- date-series
+- left-join
+difficulty: easy
+dataset: logistics
+prompt: |
+  Operations reviews **cancelled trips** (`status = 'cancelled'`) day by day for **January 2024**. The chart must show **all 31 days**, including the days with no cancellation (they show 0).
+
+  Return `day` (a date) and `cancelled_trips`, ordered by `day`. Build the list of days yourself with a recursive CTE.
+solution_sql: |
+  WITH RECURSIVE days AS (
+    SELECT DATE '2024-01-01' AS day
+    UNION ALL
+    SELECT day + 1 FROM days WHERE day < DATE '2024-01-31'
+  )
+  SELECT d.day, count(t.id) AS cancelled_trips
+  FROM days d
+  LEFT JOIN trips t ON t.started_at::date = d.day AND t.status = 'cancelled'
+  GROUP BY d.day
+  ORDER BY d.day
+compare:
+  order_matters: true
+hints:
+- 'A recursive CTE can generate rows from nothing: anchor = first day, step = previous day + 1, stop with a WHERE.'
+- Which join keeps the days that have no matching trip?
+trap: |
+  Grouping the trips directly only returns the 16 days that had a cancellation; the 15 quiet days vanish from the chart. Generate the calendar first, then LEFT JOIN, and put the `status` filter in the ON clause (in WHERE it would turn the join back into an inner join). `count(t.id)` - not `count(*)` - gives 0 for an empty day.
+followup: |
+  "Do the same for a whole year without hitting the recursion limit worries" (a recursive CTE has no limit by default; `generate_series` is the shorter built-in alternative).

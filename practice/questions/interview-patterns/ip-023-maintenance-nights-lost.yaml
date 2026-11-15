@@ -1,0 +1,35 @@
+id: ip-023
+title: Nights lost to maintenance
+topic: interview-patterns
+tags: [overlap, inclusive-range, least-greatest]
+difficulty: hard
+dataset: hotel
+prompt: |
+  Facilities scheduled maintenance without checking the reservations. For every **confirmed** booking that collides with a maintenance window of the same room,
+  tell Revenue how many of the guest's nights fall inside the window.
+  Conventions: a booking occupies the nights `check_in .. check_out - 1` (`check_out` exclusive); a maintenance window covers `start_date` **through `end_date`, both days inclusive**.
+  Return `booking_id`, `maintenance_id`, `room_id` and `overlap_nights` (the number of shared nights, at least 1), ordered by `booking_id`, `maintenance_id`.
+solution_sql: |
+  SELECT b.id AS booking_id, m.id AS maintenance_id, b.room_id,
+         least(b.check_out, m.end_date + 1) - greatest(b.check_in, m.start_date) AS overlap_nights
+  FROM bookings b
+  JOIN maintenance m ON m.room_id = b.room_id
+                    AND m.start_date < b.check_out AND b.check_in <= m.end_date
+  WHERE b.status = 'confirmed'
+  ORDER BY b.id, m.id
+compare: {order_matters: true}
+hints:
+  - "Shared nights = (earliest end) - (latest start), with both ranges written as half-open [start, end)."
+  - "An inclusive end_date means the window really ends at end_date + 1 on the half-open scale."
+trap: |
+  Treating `end_date` as exclusive (the booking's convention) loses the colliding bookings that arrive on the last maintenance day (4 of the 30 conflicts)
+  and under-counts every other overlap by one night: 26 rows and 60 nights instead of 30 rows and 77 nights.
+followup: |
+  "Which bookings would you move first?" Order by overlap_nights descending, or by the number of nights the room remains blocked.
+alternatives:
+  - |
+    SELECT b.id AS booking_id, m.id AS maintenance_id, b.room_id,
+           (SELECT count(*) FROM generate_series(b.check_in, b.check_out - 1, interval '1 day') d
+            WHERE d::date BETWEEN m.start_date AND m.end_date)::int AS overlap_nights
+    FROM bookings b JOIN maintenance m ON m.room_id = b.room_id AND daterange(b.check_in, b.check_out) && daterange(m.start_date, m.end_date, '[]')
+    WHERE b.status = 'confirmed' ORDER BY 1, 2

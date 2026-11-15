@@ -1,0 +1,32 @@
+id: mk-005
+title: Return rate by category
+topic: mock-interviews
+tags: [join, conditional-aggregation, self-join, coalesce]
+difficulty: medium
+dataset: ecommerce
+prompt: |
+  Operations wants to know where returns hurt. Look at **order lines of orders with status `delivered` or `returned`** and group them by the product's category (the category the product belongs to directly). For each category return:
+
+  - `category`: the category name; `parent_category`: the name of its parent (NULL for top-level categories)
+  - `delivered_units` and `returned_units`: sum of `quantity` in delivered / returned orders (0 when none)
+  - `return_pct`: returned units as a percentage (0-100, rounded to 2 decimals) of **delivered + returned** units
+
+  Order by `return_pct` descending, then `category`.
+solution_sql: |
+  SELECT cat.name AS category,
+         parent.name AS parent_category,
+         coalesce(sum(i.quantity) FILTER (WHERE o.status = 'delivered'), 0) AS delivered_units,
+         coalesce(sum(i.quantity) FILTER (WHERE o.status = 'returned'), 0) AS returned_units,
+         round(100.0 * coalesce(sum(i.quantity) FILTER (WHERE o.status = 'returned'), 0)
+               / sum(i.quantity) FILTER (WHERE o.status IN ('delivered', 'returned')), 2) AS return_pct
+  FROM order_items i
+  JOIN orders o ON o.id = i.order_id
+  JOIN products p ON p.id = i.product_id
+  JOIN categories cat ON cat.id = p.category_id
+  LEFT JOIN categories parent ON parent.id = cat.parent_id
+  GROUP BY cat.id, cat.name, parent.name
+  ORDER BY return_pct DESC, cat.name
+compare: {order_matters: true}
+hints: [One pass over the lines with `FILTER (WHERE ...)` gives both counts side by side., 'Categories without any return must show 0, not NULL (and must not sort first).']
+trap: 'Dividing by *all* units (including `placed`, `shipped` and `cancelled` orders) understates the rate: Garden shows 22.22% instead of 28.57%, Kitchen 11.11% instead of 14.29%. The return rate is defined against orders that finished one way or the other (delivered or returned). Also `sum(...) FILTER` is NULL when no row matches: without `coalesce` the five categories that never see a return sort at the top of a DESC order.'
+followup: '"Would you measure returns by units or by money?" (Both: units say how often, money says how much it costs; compute `sum(quantity*unit_price)` the same way. Mention the NULL/0 treatment in both.)'

@@ -1,0 +1,44 @@
+id: ip-007
+title: Merge back-to-back subscriptions
+topic: interview-patterns
+tags: [gaps-and-islands, merge-intervals, lag, "null"]
+difficulty: medium
+dataset: events
+prompt: |
+  Billing wants to see **continuous subscription spans** of the users who ever had **more than one** subscription row. Two rows belong to the same span when the second one starts **the day after the first one ends** (`started_on = previous ended_on + 1`, whatever the plan). If there is a gap of even one idle day, they are separate spans. `ended_on` NULL means the subscription is still active.
+
+  Return `user_id`, `span_start`, `span_end` (NULL when the span is still active), ordered by `user_id`, `span_start`.
+solution_sql: |
+  WITH x AS (
+    SELECT user_id, started_on, ended_on,
+           lag(ended_on) OVER (PARTITION BY user_id ORDER BY started_on) AS prev_end
+    FROM subscriptions
+    WHERE user_id IN (SELECT user_id FROM subscriptions GROUP BY user_id HAVING count(*) > 1)),
+  y AS (
+    SELECT *,
+           sum(CASE WHEN prev_end IS NULL OR started_on > prev_end + 1 THEN 1 ELSE 0 END)
+             OVER (PARTITION BY user_id ORDER BY started_on) AS span_no
+    FROM x)
+  SELECT user_id,
+         min(started_on) AS span_start,
+         CASE WHEN bool_or(ended_on IS NULL) THEN NULL ELSE max(ended_on) END AS span_end
+  FROM y
+  GROUP BY user_id, span_no
+  ORDER BY user_id, span_start
+compare: {order_matters: true}
+hints:
+  - "Merging intervals is islands again: flag the rows that do NOT continue the previous one, then take a running sum of the flags."
+  - "`max(ended_on)` skips NULLs - what should a span that contains an active subscription end with?"
+trap: |
+  Taking `min(started_on)` and `max(ended_on)` per user ignores the gaps (10 users have a pause of 31-60 days and must show TWO spans, not one; the other 33 users are back-to-back and correctly show one) and, because `max` skips NULLs, also hides the fact that the user is still active (a span that ends in an active subscription must have NULL as its end). The adjacency test (`started_on` vs previous `ended_on + 1`) is what defines the islands.
+followup: |
+  "What if intervals can overlap?" (Compare with the running maximum of `ended_on` of all earlier rows instead of only the previous row.) "Why `+ 1`?" (The dates are inclusive: a subscription ending on the 10th and one starting on the 11th leave no idle day.)
+alternatives:
+  - |
+    SELECT s.user_id, s.started_on AS span_start,
+           CASE WHEN n.id IS NOT NULL THEN n.ended_on ELSE s.ended_on END AS span_end
+    FROM subscriptions s
+    LEFT JOIN subscriptions n ON n.user_id = s.user_id AND n.started_on = s.ended_on + 1
+    WHERE s.user_id IN (SELECT user_id FROM subscriptions GROUP BY user_id HAVING count(*) > 1)
+      AND NOT EXISTS (SELECT 1 FROM subscriptions p WHERE p.user_id = s.user_id AND p.ended_on + 1 = s.started_on)
+    ORDER BY s.user_id, s.started_on

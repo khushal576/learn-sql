@@ -1,0 +1,30 @@
+id: rc-016
+title: Hubs that sit on a route loop
+topic: recursive-cte
+tags:
+- recursive
+- graph
+- cycle
+- union
+difficulty: hard
+dataset: logistics
+prompt: |
+  Risk management wants the hubs that lie on a **loop**: a hub from which you can follow `routes` (one or more of them, in their one-way direction) and **end up back at the same hub**. A two-way road stored as two rows (a -> b and b -> a) counts as a loop too.
+
+  Return `hub_id` only, one row per hub, ordered by `hub_id`.
+solution_sql: |
+  WITH RECURSIVE reach(src, dst) AS (
+    SELECT from_hub, to_hub FROM routes
+    UNION
+    SELECT r.src, rt.to_hub FROM reach r JOIN routes rt ON rt.from_hub = r.dst
+  )
+  SELECT DISTINCT src AS hub_id FROM reach WHERE src = dst ORDER BY hub_id
+compare:
+  order_matters: true
+hints:
+- Compute which hub can reach which hub (pairs), then keep the pairs where both ends are the same.
+- With UNION (not UNION ALL) a repeated pair is discarded, so the recursion ends by itself.
+trap: |
+  Looking only for two-way roads (a -> b and b -> a) finds just the pairs and misses the longer loops 4 -> 5 -> 6 -> 4 and 22 -> 23 -> 24 -> 25 -> 22 (hubs that have no return road). The reachability closure needs recursion; here `UNION` is deliberate - on this graph `UNION ALL` would never terminate.
+followup: |
+  "Why does UNION stop the recursion?" (The row set of (src, dst) pairs is finite; once an iteration adds no new pair, it ends.)

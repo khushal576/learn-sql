@@ -1,0 +1,41 @@
+id: ip-016
+title: Signup funnel with step conversion
+topic: interview-patterns
+tags: [funnel, count-distinct, lag]
+difficulty: medium
+dataset: events
+prompt: |
+  Growth wants the classic three-step product funnel for the whole period: **signup -> activated -> purchase**. A step counts a user once, however many
+  times that user triggered the event (some users activate twice, buyers purchase many times).
+  Return one row per step with `step` (the event name), `users` (distinct users who have at least one such event) and `pct_of_previous_step`
+  (`users` as a percentage 0-100 of the previous step's users, **rounded to 1 decimal**; NULL for the first step).
+  Order the rows from the top of the funnel to the bottom (`signup`, `activated`, `purchase`).
+solution_sql: |
+  WITH s AS (
+    SELECT name AS step, count(DISTINCT user_id) AS users
+    FROM events
+    WHERE name IN ('signup', 'activated', 'purchase')
+    GROUP BY name
+  )
+  SELECT step, users,
+         round(100.0 * users / lag(users) OVER (ORDER BY users DESC), 1) AS pct_of_previous_step
+  FROM s
+  ORDER BY users DESC
+compare: {order_matters: true}
+hints:
+  - "Count people, not events: what does COUNT(DISTINCT ...) change for a user with two 'activated' rows?"
+  - "LAG over the steps ordered by their size gives the previous step."
+trap: |
+  `count(*)` counts events, not users: it reports 500 activations instead of 480 and 1 632 purchases instead of 221 (a 326 % "conversion" from activation to purchase).
+  A funnel counts each person once per step.
+followup: |
+  "Some purchasers never activated - does the funnel still make sense?" Yes: 8 of the 221 buyers skipped 'activated', so this is a step-by-step count of
+  users who reached each step, not a strict path; a strict funnel would require the earlier step first (and in time order).
+alternatives:
+  - |
+    SELECT step, users, round(100.0 * users / lag(users) OVER (ORDER BY ord), 1) AS pct_of_previous_step
+    FROM (
+      SELECT 1 AS ord, 'signup' AS step, count(DISTINCT user_id) AS users FROM events WHERE name = 'signup'
+      UNION ALL SELECT 2, 'activated', count(DISTINCT user_id) FROM events WHERE name = 'activated'
+      UNION ALL SELECT 3, 'purchase', count(DISTINCT user_id) FROM events WHERE name = 'purchase'
+    ) t ORDER BY ord

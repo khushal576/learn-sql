@@ -1,0 +1,28 @@
+id: mk-008
+title: Reviews without a verified purchase
+topic: mock-interviews
+tags: [not-exists, filter, join, semi-anti]
+difficulty: medium
+dataset: ecommerce
+prompt: |
+  Trust & Safety suspects fake reviews. A review is **verified** when its author has a **delivered** order that contains the reviewed product. Every other review is **unverified**.
+
+  For every product that has reviews return `product_id`, `name`, `reviews` (all its reviews) and `unverified_reviews`, ordered by `unverified_reviews` descending, then `product_id`.
+solution_sql: |
+  SELECT r.product_id, p.name,
+         count(*) AS reviews,
+         count(*) FILTER (WHERE NOT EXISTS (
+           SELECT 1
+           FROM orders o
+           JOIN order_items i ON i.order_id = o.id
+           WHERE o.customer_id = r.customer_id
+             AND i.product_id = r.product_id
+             AND o.status = 'delivered')) AS unverified_reviews
+  FROM reviews r
+  JOIN products p ON p.id = r.product_id
+  GROUP BY r.product_id, p.name
+  ORDER BY unverified_reviews DESC, r.product_id
+compare: {order_matters: true}
+hints: ['Two keys identify the purchase: the customer AND the product.', 'Which order statuses make a purchase count?']
+trap: Checking only for 'any order line with this product' accepts customers whose order was only shipped, returned or still placed. 83 more reviews are unverified once you require a delivered order (2,208 instead of 2,125 of the 2,500 reviews). Put the status filter inside the NOT EXISTS subquery.
+followup: '"What if the same customer bought the product three times?" (EXISTS / a de-duplicated join handle it; a plain JOIN to orders would multiply the review rows and inflate the counts.)'

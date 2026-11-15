@@ -1,0 +1,27 @@
+id: mk-041
+title: "Each driver's longest finished trips"
+topic: mock-interviews
+tags: ["window", "rank", "ties"]
+difficulty: medium
+dataset: logistics
+prompt: |
+  Marek: "I want to recognise each driver's most remarkable trip." For every driver, find their longest trip by `km` among the trips with status `done` (not delayed, not cancelled).
+  **If several trips are tied for the longest, return all of them.** Return `driver_id`, `trip_id` (trips.id) and `km`, ordered by `driver_id`, `trip_id`.
+solution_sql: |
+  SELECT driver_id, id AS trip_id, km
+  FROM (
+    SELECT driver_id, id, km, rank() OVER (PARTITION BY driver_id ORDER BY km DESC) AS rk
+    FROM trips
+    WHERE status = 'done'
+  ) t
+  WHERE rk = 1
+  ORDER BY driver_id, id
+compare: {order_matters: true}
+hints:
+  - "A window function with PARTITION BY driver_id can rank trips inside each driver."
+  - "Ties must all be kept - which of row_number(), rank(), dense_rank() keeps tied rows together?"
+  - "Filter on the status BEFORE ranking (in the inner query)."
+trap: |
+  row_number() (or LIMIT per group) picks one arbitrary trip among the tied ones: the correct answer has 217 rows for 40 drivers, row_number gives exactly 40.
+followup: |
+  "Give me each driver's top 2 distinct distances instead." dense_rank() <= 2 (rank() would skip numbers after a tie).

@@ -1,0 +1,28 @@
+id: mk-027
+title: Most improved students per course
+topic: mock-interviews
+tags: [window, dense-rank, ties, self-join]
+difficulty: hard
+dataset: school
+prompt: |
+  Build the 'most improved' honour list. For each course, take the **completed** enrolments (a midterm and a final score) and compute `improvement = final - midterm`. Within each course rank the students by improvement, highest first, with **tied students sharing the same place** (1, 2, 3 ... without gaps). List everyone whose place is **3 or better**.
+
+  Return `course` (title), `place`, `student` (name), `midterm`, `final`, `improvement`, ordered by `course`, `place`, student `id`.
+solution_sql: |
+  WITH d AS (
+    SELECT m.course_id, m.student_id, m.score AS midterm, f.score AS final, f.score - m.score AS improvement
+    FROM scores m
+    JOIN scores f ON f.student_id = m.student_id AND f.course_id = m.course_id AND f.exam = 'final'
+    WHERE m.exam = 'midterm'),
+  r AS (
+    SELECT *, dense_rank() OVER (PARTITION BY course_id ORDER BY improvement DESC) AS pos FROM d)
+  SELECT c.title AS course, r.pos AS place, s.name AS student, r.midterm, r.final, r.improvement
+  FROM r
+  JOIN courses c ON c.id = r.course_id
+  JOIN students s ON s.id = r.student_id
+  WHERE r.pos <= 3
+  ORDER BY c.title, r.pos, s.id
+compare: {order_matters: true}
+hints: ['Pair the exam rows first, rank in a second step.', 'What happens to a student tied for third place when you number rows with `row_number()`?']
+trap: '`row_number()` gives every student a different number, so a tie for third place is broken arbitrarily and a deserving student is dropped: History II and Music III each lose one student (72 rows instead of 74). `rank()` or `dense_rank()` keep tied students together.'
+followup: '"The principal wants exactly 3 names per course." (Then a tie-break rule is a business decision: higher final score, earlier submission, alphabetical: write it into the ORDER BY of `row_number()`.)'

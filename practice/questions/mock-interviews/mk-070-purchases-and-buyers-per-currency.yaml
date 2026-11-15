@@ -1,0 +1,26 @@
+id: mk-070
+title: "Purchases and buyers per currency"
+topic: mock-interviews
+tags: ["group-by", "count-distinct"]
+difficulty: easy
+dataset: events
+prompt: |
+  Kofi: "Finance wants a revenue line per currency." Use the `purchases` table.
+  Return one row per `currency` with `currency`, `purchases` (number of purchases), `buyers` (number of **different users** who bought in that currency) and `total_amount` (sum of `amount`, in that currency), ordered by `currency`. Do not convert currencies.
+solution_sql: |
+  SELECT currency,
+         count(*) AS purchases,
+         count(DISTINCT user_id) AS buyers,
+         sum(amount) AS total_amount
+  FROM purchases
+  GROUP BY currency
+  ORDER BY currency
+compare: {order_matters: true}
+hints:
+  - "One row per currency: GROUP BY currency."
+  - "The same user can buy several times in a currency - which aggregate counts each user once?"
+  - "Amounts in different currencies must not be added together: that is why you group by currency."
+trap: |
+  `count(user_id)` counts purchases, not people: USD would show 335 'buyers' instead of the real 30 (and JPY 274 instead of 26).
+followup: |
+  "Average spend per buyer?" sum(amount) / count(DISTINCT user_id) - not avg(amount), which is the average per purchase.
